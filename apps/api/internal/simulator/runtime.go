@@ -233,7 +233,7 @@ func (r *Runtime) StartTransaction(cpID string, connectorID int, idTag string) e
 	cr, connExists := cp.Connectors[connectorID]
 	cp.Mu.Unlock()
 
-	if !connected || client == nil {
+	if !connected {
 		return fmt.Errorf("charge point %s not connected", cpID)
 	}
 	if !connExists {
@@ -252,9 +252,12 @@ func (r *Runtime) StartTransaction(cpID string, connectorID int, idTag string) e
 		return fmt.Errorf("connector %d already has an active transaction", connectorID)
 	}
 
-	// Transition state: Available -> Preparing
-	if err := r.SetConnectorStatus(cpID, connectorID, common.ConnectorPreparing); err != nil {
-		return fmt.Errorf("transition to Preparing: %w", err)
+	// Transition state: if not already Preparing, move from Available to Preparing
+	cur := cr.StateMachine.Current()
+	if cur != StatePreparing {
+		if err := r.SetConnectorStatus(cpID, connectorID, common.ConnectorPreparing); err != nil {
+			return fmt.Errorf("transition to Preparing: %w", err)
+		}
 	}
 
 	// Create transaction in DB with pending_start status
@@ -586,7 +589,9 @@ func (r *Runtime) HandleRemoteStartTransaction(cpID string, req *ocpp.RemoteStar
 	connected := cp.Connected
 	cp.Mu.Unlock()
 
-	if !connected || client == nil {
+	log.Printf("[RemoteStart] cpID=%s connected=%v client=%v connectorID=%v idTag=%s", cpID, connected, client != nil, req.ConnectorID, req.IDTag)
+
+	if !connected {
 		return "", fmt.Errorf("charge point %s not connected", cpID)
 	}
 
@@ -600,35 +605,47 @@ func (r *Runtime) HandleRemoteStartTransaction(cpID string, req *ocpp.RemoteStar
 	defer cp.Mu.Unlock()
 
 	if connectorID == 0 {
-		// Pick first available connector
+		// Pick first connector that is Available or Preparing (cable already plugged in)
 		for id, cr := range cp.Connectors {
-			if cr.StateMachine.Current() == StateAvailable {
+			cur := cr.StateMachine.Current()
+			log.Printf("[RemoteStart] connector %d state=%s", id, cur)
+			if cur == StateAvailable || cur == StatePreparing {
 				connectorID = id
 				break
 			}
 		}
 		if connectorID == 0 {
+			log.Printf("[RemoteStart] no Available or Preparing connector found")
 			return "Rejected", nil
 		}
 	}
 
 	cr, exists := cp.Connectors[connectorID]
 	if !exists {
-		return "Rejected", nil
-	}
-
-	// Check connector is in a state that allows starting
-	if !cr.StateMachine.CanTransitionTo(StatePreparing) {
+		log.Printf("[RemoteStart] connector %d not found", connectorID)
 		return "Rejected", nil
 	}
 
 	// Check no active transaction
 	if cr.TransactionID != "" {
+		log.Printf("[RemoteStart] connector %d already has active transaction %s", connectorID, cr.TransactionID)
 		return "Rejected", nil
 	}
 
-	// Transition to Preparing
-	if err := cr.StateMachine.Transition(StatePreparing); err != nil {
+	cur := cr.StateMachine.Current()
+	log.Printf("[RemoteStart] connector %d current state=%s", connectorID, cur)
+	switch cur {
+	case StateAvailable:
+		// Cable not yet plugged in — transition to Preparing
+		if err := cr.StateMachine.Transition(StatePreparing); err != nil {
+			log.Printf("[RemoteStart] transition Available->Preparing failed: %v", err)
+			return "Rejected", nil
+		}
+	case StatePreparing:
+		// Already in Preparing (cable plugged in) — proceed without transition
+	default:
+		// Any other state — cannot start
+		log.Printf("[RemoteStart] connector %d in invalid state %s", connectorID, cur)
 		return "Rejected", nil
 	}
 
@@ -637,6 +654,12 @@ func (r *Runtime) HandleRemoteStartTransaction(cpID string, req *ocpp.RemoteStar
 
 	// Trigger async StartTransaction flow
 	go func() {
+		if client == nil {
+			log.Printf("[%s] RemoteStartTransaction accepted but OCPP client not available (proxy mode). Use frontend Authorize flow instead.", cpID)
+			r.publishEvent("transaction.failed", cpID, &connectorID,
+				"RemoteStartTransaction: OCPP client not available (proxy mode). Use frontend Authorize flow.")
+			return
+		}
 		if err := r.StartTransaction(cpID, connectorID, req.IDTag); err != nil {
 			log.Printf("[%s] async StartTransaction after RemoteStartTransaction failed: %v", cpID, err)
 			r.publishEvent("transaction.failed", cpID, &connectorID,

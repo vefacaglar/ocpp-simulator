@@ -407,15 +407,19 @@ func (s *Server) handleRemoteStart(w http.ResponseWriter, r *http.Request) {
 		req.IDTag = "DEADBEEF"
 	}
 
+	log.Printf("[API] RemoteStart cpID=%s idTag=%s connectorID=%v", cpID, req.IDTag, req.ConnectorID)
+
 	status, err := s.runtime.HandleRemoteStartTransaction(cpID, &ocpp.RemoteStartTransactionRequest{
 		IDTag:       req.IDTag,
 		ConnectorID: req.ConnectorID,
 	})
 	if err != nil {
+		log.Printf("[API] RemoteStart error: %v", err)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
+	log.Printf("[API] RemoteStart result: %s", status)
 	writeJSON(w, http.StatusOK, map[string]string{"status": status})
 }
 

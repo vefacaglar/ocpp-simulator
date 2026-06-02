@@ -474,12 +474,16 @@ export const useChargePointStore = defineStore('chargePoint', () => {
 
   function sendMessage(cpId: string, frame: unknown[], action: string, extra?: { connectorId?: number; idTag?: string }) {
     const state = cpStates.value.get(cpId)
-    if (!state || state.ws.readyState !== WebSocket.OPEN) return
+    if (!state || state.ws.readyState !== WebSocket.OPEN) {
+      console.log('[sendMessage] BLOCKED state:', !!state, 'readyState:', state?.ws.readyState, 'action:', action)
+      return
+    }
 
     const uniqueId = frame[1] as string
     const pendingInfo: PendingCallInfo = { action, sentAt: Date.now(), ...extra }
     state.pendingCalls.set(uniqueId, pendingInfo)
     state.lastMessageSentAt = Date.now()
+    console.log('[sendMessage] Sending:', action, 'uniqueId:', uniqueId, 'frame:', frame)
     state.ws.send(JSON.stringify(frame))
 
     resetHeartbeatTimer(cpId)
@@ -582,6 +586,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     if (!selectedId.value) return
     const cpId = selectedId.value
     const state = cpStates.value.get(cpId)
+    console.log('[PlugIn] cpId:', cpId, 'state:', !!state, 'registration:', state?.registration)
     if (!state || state.registration !== 'accepted') {
       error.value = 'Not registered'
       return
@@ -593,6 +598,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       state.connectorStates.set(connectorId, cs)
     }
 
+    console.log('[PlugIn] connectorId:', connectorId, 'current status:', cs.status)
     if (cs.status !== 'Available') {
       error.value = `Cannot plug in: connector is ${cs.status}`
       return
@@ -600,6 +606,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
 
     cs.cablePluggedIn = true
     cs.status = 'Preparing'
+    console.log('[PlugIn] connectorId:', connectorId, 'new status:', cs.status, 'cablePluggedIn:', cs.cablePluggedIn)
 
     sendStatusNotification(cpId, connectorId, "Preparing", "NoError")
   }
@@ -610,12 +617,14 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     if (!selectedId.value) return
     const cpId = selectedId.value
     const state = cpStates.value.get(cpId)
+    console.log('[Authorize] cpId:', cpId, 'state:', !!state, 'registration:', state?.registration)
     if (!state || state.registration !== 'accepted') {
       error.value = 'Not registered'
       return
     }
 
     const cs = state.connectorStates.get(connectorId)
+    console.log('[Authorize] connectorId:', connectorId, 'cs:', cs, 'idTag:', idTag)
     if (!cs || cs.status !== 'Preparing') {
       error.value = `Cannot authorize: connector is ${cs?.status ?? 'Unknown'}`
       return
@@ -630,6 +639,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     const frame = [2, uniqueId, "Authorize", {
       idTag
     }]
+    console.log('[Authorize] Sending frame:', frame)
     sendMessage(cpId, frame, "Authorize", { connectorId, idTag })
   }
 

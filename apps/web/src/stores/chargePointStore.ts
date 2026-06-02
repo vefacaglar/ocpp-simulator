@@ -155,10 +155,13 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     ws.onmessage = (msg) => {
       try {
         const data = JSON.parse(msg.data)
+        console.log('[WS] Received:', data)
         if (Array.isArray(data)) {
           handleOCPPFrame(cpId, data)
         }
-      } catch {}
+      } catch (e) {
+        console.error('[WS] Parse error:', e)
+      }
     }
 
     ws.onclose = () => {
@@ -179,27 +182,38 @@ export const useChargePointStore = defineStore('chargePoint', () => {
 
   function handleOCPPFrame(cpId: string, frame: unknown[]) {
     const state = cpStates.value.get(cpId)
-    if (!state) return
+    if (!state) {
+      console.log('[OCPP] No state for', cpId)
+      return
+    }
 
     const typeID = frame[0] as number
+    console.log('[OCPP] Frame type:', typeID, 'uniqueId:', frame[1])
 
     if (typeID === 3) {
       const uniqueId = frame[1] as string
       const payload = frame[2] as Record<string, unknown>
       const pending = state.pendingCalls.get(uniqueId)
 
+      console.log('[OCPP] CALLRESULT uniqueId:', uniqueId, 'pending:', pending, 'payload:', payload)
+
       if (pending) {
         state.pendingCalls.delete(uniqueId)
 
         if (pending.action === "BootNotification") {
+          console.log('[OCPP] Handling BootNotification response')
           handleBootNotificationResponse(cpId, state, payload)
         } else if (pending.action === "StartTransaction") {
+          console.log('[OCPP] Handling StartTransaction response')
           handleStartTransactionResponse(cpId, state, payload)
         }
+      } else {
+        console.log('[OCPP] No pending call for uniqueId:', uniqueId)
       }
     } else if (typeID === 4) {
       const uniqueId = frame[1] as string
       state.pendingCalls.delete(uniqueId)
+      console.log('[OCPP] CALLERROR uniqueId:', uniqueId)
     }
   }
 
@@ -207,10 +221,13 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     const status = payload.status as string
     const interval = payload.interval as number
 
+    console.log('[Boot] Response:', { status, interval })
+
     if (status === "Accepted") {
       state.registration = 'accepted'
       state.heartbeatInterval = interval
 
+      console.log('[Boot] Accepted, starting heartbeat with interval:', interval)
       sendInitialStatusNotifications(cpId)
       scheduleHeartbeat(cpId)
 
@@ -228,8 +245,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
             chargePointVendor: "Simulator",
             chargePointModel: "OCPP-Sim"
           }]
-          state.pendingCalls.set(uniqueId, { action: "BootNotification", sentAt: Date.now() })
-          state.ws.send(JSON.stringify(frame))
+          sendMessage(cpId, frame, "BootNotification")
         }
       }, interval * 1000)
     }
@@ -341,7 +357,10 @@ export const useChargePointStore = defineStore('chargePoint', () => {
 
   function scheduleHeartbeat(cpId: string) {
     const state = cpStates.value.get(cpId)
-    if (!state || state.registration !== 'accepted' || !state.heartbeatInterval) return
+    if (!state || state.registration !== 'accepted' || !state.heartbeatInterval) {
+      console.log('[Heartbeat] Cannot schedule:', { registration: state?.registration, interval: state?.heartbeatInterval })
+      return
+    }
 
     if (state.heartbeatTimer) {
       clearTimeout(state.heartbeatTimer)
@@ -349,9 +368,12 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     }
 
     const delay = state.heartbeatInterval * 1000
+    console.log('[Heartbeat] Scheduling in', delay, 'ms')
     state.heartbeatTimer = setTimeout(() => {
       const timeSinceLastMessage = Date.now() - state.lastMessageSentAt
+      console.log('[Heartbeat] Timer fired, timeSinceLastMessage:', timeSinceLastMessage, 'delay:', delay)
       if (timeSinceLastMessage >= delay) {
+        console.log('[Heartbeat] Sending heartbeat')
         sendHeartbeat(cpId)
       }
       scheduleHeartbeat(cpId)

@@ -136,7 +136,7 @@ func handleCall(uniqueID, action, payload string) string {
 	var responsePayload string
 	switch action {
 	case "BootNotification":
-		responsePayload = fmt.Sprintf(`{"status":"Accepted","currentTime":"%s","interval":300}`, now)
+		responsePayload = fmt.Sprintf(`{"status":"Accepted","currentTime":"%s","interval":30}`, now)
 	case "Heartbeat":
 		responsePayload = fmt.Sprintf(`{"currentTime":"%s"}`, now)
 	case "StatusNotification":

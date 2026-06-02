@@ -6,6 +6,8 @@ const store = useChargePointStore()
 
 const connectors = computed(() => store.selectedDetail?.connectors ?? [])
 const connected = computed(() => store.selectedId ? store.isConnected(store.selectedId) : false)
+const registered = computed(() => store.isRegistered)
+const regState = computed(() => store.registrationState)
 
 function statusClass(status: string) {
   return status.toLowerCase().replace(/[^a-z]/g, '')
@@ -28,6 +30,7 @@ function statusClass(status: string) {
           <div class="field"><span class="label">Version</span><span>{{ store.selectedDetail.chargePoint.ocppVersion }}</span></div>
           <div class="field"><span class="label">URL</span><span class="url">{{ store.selectedDetail.chargePoint.centralSystemUrl }}</span></div>
           <div class="field"><span class="label">Status</span><span class="status" :class="store.selectedDetail.chargePoint.status">{{ store.selectedDetail.chargePoint.status }}</span></div>
+          <div v-if="connected" class="field"><span class="label">Registration</span><span class="reg-state" :class="regState">{{ regState }}</span></div>
         </div>
 
         <div class="section">
@@ -38,7 +41,7 @@ function statusClass(status: string) {
             <button v-if="!connected" class="btn-connect" @click="store.connectChargePoint()">Connect</button>
             <button v-else class="btn-disconnect" @click="store.disconnectChargePoint()">Disconnect</button>
             <button class="btn-action" :disabled="!connected" @click="store.bootChargePoint()">Boot</button>
-            <button class="btn-action" :disabled="!connected" @click="store.heartbeatChargePoint()">Heartbeat</button>
+            <button class="btn-action" :disabled="!registered" @click="store.heartbeatChargePoint()">Heartbeat</button>
           </div>
         </div>
 
@@ -55,12 +58,12 @@ function statusClass(status: string) {
                 <span class="connector-status" :class="statusClass(c.status)">{{ c.status }}</span>
               </div>
               <div class="connector-actions">
-                <button v-if="c.status === 'Available' && connected" class="btn-action" @click="store.startConnectorTransaction(c.connectorNumber)">Start TX</button>
+                <button v-if="c.status === 'Available' && registered" class="btn-action" @click="store.startConnectorTransaction(c.connectorNumber)">Start TX</button>
                 <button v-if="c.status === 'Charging'" class="btn-action btn-stop" @click="store.stopConnectorTransaction(c.connectorNumber)">Stop TX</button>
                 <button v-if="c.status === 'Charging'" class="btn-action" @click="store.sendConnectorMeterValues(c.connectorNumber)">MeterValues</button>
-                <button v-if="c.status === 'Available' && connected" class="btn-action btn-fault" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
+                <button v-if="c.status === 'Available' && registered" class="btn-action btn-fault" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
                 <button v-if="c.status === 'Faulted'" class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Available')">Clear</button>
-                <button v-if="c.status === 'Available' && connected" class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Unavailable')">Disable</button>
+                <button v-if="c.status === 'Available' && registered" class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Unavailable')">Disable</button>
                 <button v-if="c.status === 'Unavailable'" class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Available')">Enable</button>
               </div>
             </div>
@@ -87,6 +90,10 @@ function statusClass(status: string) {
 .status { font-size: 0.7rem; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
 .status.disconnected { background: #fde8e8; color: #c53030; }
 .status.connected { background: #dcfce7; color: #16a34a; }
+.reg-state { font-size: 0.7rem; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; font-weight: 600; }
+.reg-state.pending { background: #fef9c3; color: #a16207; }
+.reg-state.accepted { background: #dcfce7; color: #16a34a; }
+.reg-state.rejected { background: #fde8e8; color: #c53030; }
 .btn-small { padding: 0.25rem 0.5rem; font-size: 0.75rem; border: 1px solid #ccc; border-radius: 4px; background: transparent; color: #666; cursor: pointer; }
 .btn-small:hover { background: #eee; color: #333; }
 .empty-hint { font-size: 0.8rem; color: #999; }

@@ -18,7 +18,7 @@ Persistent task list so any model/contributor can see where things stand. The au
 
 ## Status overview
 
-Next available: **T20**.
+Next available: **All tasks complete**.
 
 ---
 
@@ -116,13 +116,13 @@ Next available: **T20**.
 
 ## Phase 7 — UX Polish
 
-- [ ] **T20 — UX polish** 🔧
+- [x] **T20 — UX polish** 🔧
   Dashboard layout, log filters (type/connector/ocpp-runtime-errors), `JsonPayloadDrawer`, `RuntimeStatusBadge`, `SettingsPage` + settings API (§12.6), error display in timeline (§18).
   _Blocked by:_ T19
 
 ## Phase 8 — Multi-Version Readiness
 
-- [ ] **T21 — Multi-version readiness** 🔧🛰️
+- [x] **T21 — Multi-version readiness** 🔧🛰️
   `ProtocolFactory` wiring, version stored per CP, UI version selector, `v201` placeholder package + schemas dir, clear unsupported-version handling. Adding a version must not require heavy runtime changes.
   _Blocked by:_ T18
 

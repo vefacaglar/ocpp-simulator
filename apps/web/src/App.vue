@@ -21,6 +21,9 @@ onMounted(() => {
   connectRealtime()
   onRealtimeEvent((event) => {
     rtStore.appendEvent(event)
+    if (event.type === 'charge_point.connected' || event.type === 'charge_point.disconnected') {
+      cpStore.loadChargePoints()
+    }
   })
 })
 
@@ -60,5 +63,5 @@ watch(
 .top-bar-status { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #888; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #e06060; }
 .status-dot.online { background: #4ade80; }
-.content { flex: 1; display: grid; grid-template-columns: 260px 1fr 340px; overflow: hidden; }
+.content { flex: 1; display: grid; grid-template-columns: 260px 1fr 380px; overflow: hidden; }
 </style>

@@ -25,11 +25,20 @@ type OcppWebSocketClient struct {
 	eventBus        *realtime.EventBus
 	responseHandler ResponseHandler
 
-	conn      *websocket.Conn
-	mu        sync.Mutex
-	connected bool
-	cancel    context.CancelFunc
+	conn               *websocket.Conn
+	mu                 sync.Mutex
+	connected          bool
+	intentionalClose   bool
+	cancel             context.CancelFunc
+	reconnectCtx       context.Context
+	reconnectCancel    context.CancelFunc
 }
+
+const (
+	reconnectBaseDelay = 1 * time.Second
+	reconnectMaxDelay  = 30 * time.Second
+	reconnectMaxRetries = 0 // 0 = unlimited
+)
 
 func NewOcppWebSocketClient(cpID, url string, protocol ocpp.Protocol, eventBus *realtime.EventBus) *OcppWebSocketClient {
 	return &OcppWebSocketClient{
@@ -48,15 +57,24 @@ func (c *OcppWebSocketClient) SetResponseHandler(handler ResponseHandler) {
 
 func (c *OcppWebSocketClient) Connect(ctx context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if c.connected {
+		c.mu.Unlock()
 		return nil
 	}
+	c.intentionalClose = false
+	c.mu.Unlock()
+
+	return c.dial(ctx)
+}
+
+func (c *OcppWebSocketClient) dial(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	connURL := fmt.Sprintf("%s/%s", c.url, c.cpID)
 	dialer := websocket.Dialer{
 		Subprotocols: []string{"ocpp1.6"},
+		HandshakeTimeout: 10 * time.Second,
 	}
 
 	conn, _, err := dialer.DialContext(ctx, connURL, nil)
@@ -71,8 +89,6 @@ func (c *OcppWebSocketClient) Connect(ctx context.Context) error {
 	c.cancel = cancel
 
 	go c.readLoop(ctx)
-
-	c.publishEvent("charge_point.connected", nil, fmt.Sprintf("Connected to %s", connURL))
 	return nil
 }
 
@@ -82,6 +98,12 @@ func (c *OcppWebSocketClient) Disconnect() error {
 
 	if !c.connected {
 		return nil
+	}
+
+	c.intentionalClose = true
+
+	if c.reconnectCancel != nil {
+		c.reconnectCancel()
 	}
 
 	if c.cancel != nil {
@@ -159,6 +181,7 @@ func (c *OcppWebSocketClient) SendStatusNotification(ctx context.Context, connec
 }
 
 func (c *OcppWebSocketClient) readLoop(ctx context.Context) {
+	var readErr error
 	for {
 		select {
 		case <-ctx.Done():
@@ -171,8 +194,9 @@ func (c *OcppWebSocketClient) readLoop(ctx context.Context) {
 			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 				return
 			}
+			readErr = err
 			log.Printf("[%s] read error: %v", c.cpID, err)
-			return
+			break
 		}
 
 		msg, err := c.codec.Decode(raw)
@@ -194,10 +218,75 @@ func (c *OcppWebSocketClient) readLoop(ctx context.Context) {
 				fmt.Sprintf("CALLERROR: %s - %s", msg.ErrorCode, msg.ErrorDescription))
 		}
 	}
+
+	// Connection dropped — check if we should reconnect
+	c.mu.Lock()
+	intentional := c.intentionalClose
+	c.connected = false
+	c.mu.Unlock()
+
+	if !intentional && readErr != nil {
+		c.scheduleReconnect()
+	}
+}
+
+func (c *OcppWebSocketClient) scheduleReconnect() {
+	ctx, cancel := context.WithCancel(context.Background())
+	c.mu.Lock()
+	c.reconnectCtx = ctx
+	c.reconnectCancel = cancel
+	c.mu.Unlock()
+
+	delay := reconnectBaseDelay
+	attempt := 0
+
+	for {
+		c.publishEvent("charge_point.reconnecting", nil,
+			fmt.Sprintf("Reconnecting in %s (attempt %d)...", delay.Round(time.Millisecond), attempt+1))
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+
+		attempt++
+
+		c.mu.Lock()
+		intentional := c.intentionalClose
+		c.mu.Unlock()
+		if intentional {
+			return
+		}
+
+		err := c.dial(ctx)
+		if err != nil {
+			log.Printf("[%s] reconnect attempt %d failed: %v", c.cpID, attempt, err)
+
+			delay = delay * 2
+			if delay > reconnectMaxDelay {
+				delay = reconnectMaxDelay
+			}
+			if reconnectMaxRetries > 0 && attempt >= reconnectMaxRetries {
+				c.publishEvent("charge_point.reconnect_failed", nil,
+					fmt.Sprintf("Reconnect failed after %d attempts", attempt))
+				return
+			}
+			continue
+		}
+
+		// Reconnected — re-boot
+		log.Printf("[%s] reconnected after %d attempts", c.cpID, attempt)
+		c.publishEvent("charge_point.connected", nil, "Reconnected")
+
+		if err := c.SendBootNotification(ctx, "Simulator", "OCPP-Sim"); err != nil {
+			log.Printf("[%s] re-boot after reconnect failed: %v", c.cpID, err)
+		}
+		return
+	}
 }
 
 func (c *OcppWebSocketClient) handleResponse(call ocpp.PendingCall, msg ocpp.Message) {
-	// Notify runtime about the response
 	if c.responseHandler != nil {
 		c.responseHandler(c.cpID, call.Action, msg)
 	}

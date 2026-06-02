@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:ocpp:2.0.1:BootNotificationRequest",
+  "description": "OCPP 2.0.1 BootNotification schema placeholder. Replace with official OCA schema when implementing 2.0.1 support.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": true
+}

@@ -35,7 +35,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     }
   }
 
-  async function createChargePoint(input: { id: string; name?: string }) {
+  async function createChargePoint(input: { id: string; name?: string; ocppVersion?: string; centralSystemUrl?: string }) {
     error.value = null
     try {
       await api.createChargePoint(input)

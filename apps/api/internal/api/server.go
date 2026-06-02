@@ -25,6 +25,7 @@ type Server struct {
 	hub             *realtime.Hub
 	chargePointRepo *db.ChargePointRepo
 	connectorRepo   *db.ConnectorRepo
+	settingsRepo    *db.SettingsRepo
 }
 
 func NewServer(database *sql.DB, runtime *simulator.Runtime, hub *realtime.Hub) *Server {
@@ -35,6 +36,7 @@ func NewServer(database *sql.DB, runtime *simulator.Runtime, hub *realtime.Hub) 
 		hub:             hub,
 		chargePointRepo: db.NewChargePointRepo(database),
 		connectorRepo:   db.NewConnectorRepo(database),
+		settingsRepo:    db.NewSettingsRepo(database),
 	}
 	s.registerRoutes()
 	return s
@@ -60,6 +62,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/charge-points/{id}/connectors/{connectorId}/stop-transaction", s.handleStopTransaction)
 	s.mux.HandleFunc("POST /api/charge-points/{id}/connectors/{connectorId}/meter-values", s.handleMeterValues)
 	s.mux.HandleFunc("POST /api/charge-points/{id}/connectors/{connectorId}/status", s.handleSetConnectorStatus)
+
+	s.mux.HandleFunc("GET /api/settings", s.handleGetSettings)
+	s.mux.HandleFunc("PUT /api/settings", s.handleUpdateSettings)
+	s.mux.HandleFunc("GET /api/versions", s.handleListVersions)
 
 	s.mux.HandleFunc("GET /api/realtime", s.handleRealtime)
 }
@@ -357,6 +363,43 @@ func (s *Server) handleSetConnectorStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "connector_status_set"})
+}
+
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := s.settingsRepo.GetAll(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get settings")
+		return
+	}
+	if settings == nil {
+		settings = []db.Setting{}
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+type updateSettingsRequest map[string]string
+
+func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var req updateSettingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	for key, value := range req {
+		if err := s.settingsRepo.Set(r.Context(), key, value); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update settings")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (s *Server) handleListVersions(w http.ResponseWriter, r *http.Request) {
+	versions := []map[string]string{
+		{"version": "1.6J", "label": "OCPP 1.6J", "status": "supported"},
+		{"version": "2.0.1", "label": "OCPP 2.0.1", "status": "planned"},
+	}
+	writeJSON(w, http.StatusOK, versions)
 }
 
 func parseIntOr(s string, defaultVal int) int {

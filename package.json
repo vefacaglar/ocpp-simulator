@@ -1,0 +1,17 @@
+{
+  "name": "ocpp-simulator",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "dev:api": "cd apps/api && go run ./cmd/server",
+    "dev:web": "pnpm --filter web dev",
+    "dev:csms": "cd apps/csms && go run ./cmd/server",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "test": "turbo test"
+  },
+  "devDependencies": {
+    "turbo": "^2"
+  },
+  "packageManager": "pnpm@11.1.3"
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:ocpp:1.6:1.6:AuthorizeRequest",
+  "type": "object",
+  "properties": {
+    "idTag": {
+      "type": "string",
+      "maxLength": 20
+    }
+  },
+  "required": ["idTag"],
+  "additionalProperties": false
+}

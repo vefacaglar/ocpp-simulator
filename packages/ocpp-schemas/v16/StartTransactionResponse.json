@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:ocpp:1.6:1.6:StartTransactionResponse",
+  "type": "object",
+  "properties": {
+    "transactionId": {
+      "type": "integer"
+    },
+    "idTagInfo": {
+      "type": "object",
+      "properties": {
+        "expiryDate": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "parentIdTag": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Accepted", "Blocked", "Expired", "Invalid", "ConcurrentTx"]
+        }
+      },
+      "required": ["status"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["transactionId", "idTagInfo"],
+  "additionalProperties": false
+}

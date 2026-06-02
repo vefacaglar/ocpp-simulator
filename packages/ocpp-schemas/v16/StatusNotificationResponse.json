@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:ocpp:1.6:1.6:StatusNotificationResponse",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

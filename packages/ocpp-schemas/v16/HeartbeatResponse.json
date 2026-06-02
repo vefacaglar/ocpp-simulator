@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:ocpp:1.6:1.6:HeartbeatResponse",
+  "type": "object",
+  "properties": {
+    "currentTime": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": ["currentTime"],
+  "additionalProperties": false
+}

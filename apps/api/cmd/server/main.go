@@ -1,29 +1,43 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
-	"os"
+
+	"github.com/user/ocpp-simulator/apps/api/internal/api"
+	"github.com/user/ocpp-simulator/apps/api/internal/config"
+	"github.com/user/ocpp-simulator/apps/api/internal/db"
+	"github.com/user/ocpp-simulator/apps/api/internal/ocpp"
+	"github.com/user/ocpp-simulator/apps/api/internal/ocpp/v16"
+	"github.com/user/ocpp-simulator/apps/api/internal/realtime"
+	"github.com/user/ocpp-simulator/apps/api/internal/simulator"
 )
 
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "7070"
+	cfg := config.Load()
+
+	database, err := db.Open(cfg.DBPath)
+	if err != nil {
+		log.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	if err := db.Migrate(database); err != nil {
+		log.Fatalf("failed to migrate database: %v", err)
 	}
 
-	mux := http.NewServeMux()
+	eventBus := realtime.NewEventBus()
+	hub := realtime.NewHub(eventBus)
 
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"status":"ok"}`)
-	})
+	factory := ocpp.NewFactory()
+	factory.Register(v16.NewProtocol())
 
-	addr := ":" + port
+	runtime := simulator.NewRuntime(eventBus, factory)
+	server := api.NewServer(database, runtime, hub)
+
+	addr := ":" + cfg.Port
 	log.Printf("OCPP Simulator API listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, server); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
 }

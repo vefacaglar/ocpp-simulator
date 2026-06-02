@@ -1,13 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"nhooyr.io/websocket"
@@ -89,34 +89,40 @@ func handleOCPP(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleFrame(frame []byte) string {
-	s := strings.TrimSpace(string(frame))
-	if len(s) < 2 || s[0] != '[' || s[len(s)-1] != ']' {
+	var arr []json.RawMessage
+	if err := json.Unmarshal(frame, &arr); err != nil {
+		return ""
+	}
+	if len(arr) < 2 {
 		return ""
 	}
 
-	inner := s[1 : len(s)-1]
-	parts := splitTopLevel(inner)
-	if len(parts) < 2 {
+	var typeID int
+	if err := json.Unmarshal(arr[0], &typeID); err != nil {
 		return ""
 	}
 
-	typeID := strings.TrimSpace(parts[0])
-	uniqueID := strings.TrimSpace(parts[1])
+	var uniqueID string
+	if err := json.Unmarshal(arr[1], &uniqueID); err != nil {
+		return ""
+	}
 
 	switch typeID {
-	case "2": // CALL
-		if len(parts) < 4 {
+	case 2: // CALL
+		if len(arr) < 4 {
 			return ""
 		}
-		action := strings.Trim(strings.TrimSpace(parts[2]), `"`)
-		payload := strings.TrimSpace(parts[3])
-		return handleCall(uniqueID, action, payload)
-	case "3": // CALLRESULT
+		var action string
+		if err := json.Unmarshal(arr[2], &action); err != nil {
+			return ""
+		}
+		return handleCall(uniqueID, action, string(arr[3]))
+	case 3: // CALLRESULT
 		log.Printf("CALLRESULT uniqueID=%s", uniqueID)
 		return ""
-	case "4": // CALLERROR
-		if len(parts) >= 5 {
-			log.Printf("CALLERROR uniqueID=%s code=%s desc=%s", uniqueID, parts[2], parts[3])
+	case 4: // CALLERROR
+		if len(arr) >= 5 {
+			log.Printf("CALLERROR uniqueID=%s", uniqueID)
 		}
 		return ""
 	default:
@@ -156,29 +162,6 @@ var txCounter int
 func nextTransactionID() int {
 	txCounter++
 	return txCounter
-}
-
-func splitTopLevel(s string) []string {
-	var parts []string
-	depth := 0
-	start := 0
-	for i, c := range s {
-		switch c {
-		case '[', '{':
-			depth++
-		case ']', '}':
-			depth--
-		case ',':
-			if depth == 0 {
-				parts = append(parts, s[start:i])
-				start = i + 1
-			}
-		}
-	}
-	if start < len(s) {
-		parts = append(parts, s[start:])
-	}
-	return parts
 }
 
 func isNetworkClose(err error) bool {

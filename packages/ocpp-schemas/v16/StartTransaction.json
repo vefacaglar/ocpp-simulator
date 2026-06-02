@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:ocpp:1.6:1.6:StartTransactionRequest",
+  "type": "object",
+  "properties": {
+    "connectorId": {
+      "type": "integer"
+    },
+    "idTag": {
+      "type": "string",
+      "maxLength": 20
+    },
+    "meterStart": {
+      "type": "integer"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reservationId": {
+      "type": "integer"
+    }
+  },
+  "required": ["connectorId", "idTag", "meterStart", "timestamp"],
+  "additionalProperties": false
+}

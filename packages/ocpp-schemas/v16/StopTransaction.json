@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:ocpp:1.6:1.6:StopTransactionRequest",
+  "type": "object",
+  "properties": {
+    "idTag": {
+      "type": "string",
+      "maxLength": 20
+    },
+    "meterStop": {
+      "type": "integer"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "transactionId": {
+      "type": "integer"
+    },
+    "reason": {
+      "type": "string",
+      "enum": ["EmergencyStop", "EVDisconnected", "HardReset", "Local", "Other", "PowerLoss", "Reboot", "Remote", "SoftReset", "UnlockCommand"]
+    },
+    "transactionData": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sampledValue": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "context": {
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string"
+                },
+                "measurand": {
+                  "type": "string"
+                },
+                "phase": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                },
+                "unit": {
+                  "type": "string"
+                }
+              },
+              "required": ["value"]
+            }
+          }
+        },
+        "required": ["timestamp", "sampledValue"]
+      }
+    }
+  },
+  "required": ["meterStop", "timestamp", "transactionId"],
+  "additionalProperties": false
+}

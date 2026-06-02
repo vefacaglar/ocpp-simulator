@@ -1,0 +1,139 @@
+# ---------------------------------------------------------------------------
+# OCPP Simulator — .gitignore
+# Stack: Go (apps/api, apps/csms, packages/ocpp-schemas) + pnpm/Vue/Vite (apps/web)
+#        + SQLite + Turborepo. Host: macOS.
+# ---------------------------------------------------------------------------
+
+# === Node / pnpm =========================================================
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# === Turborepo ===========================================================
+.turbo/
+**/.turbo/
+
+# === Build output ========================================================
+dist/
+build/
+out/
+**/dist/
+**/build/
+.output/
+.vite/
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# === Vue / Vite (apps/web) ===============================================
+apps/web/dist/
+apps/web/.vite/
+apps/web/coverage/
+# Vite local dev cache
+.vite-cache/
+
+# === Go ==================================================================
+# Compiled binaries / build artifacts
+bin/
+**/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+# Test binary, built with `go test -c`
+*.test
+# Output of `go tool cover`
+*.out
+coverage.out
+coverage.html
+# Go workspace sum (keep go.work, ignore the generated sum)
+go.work.sum
+# Dependency vendor dir (only if you choose to vendor; remove this line if vendoring)
+# vendor/
+
+# Built simulator/CSMS binaries (adjust names if needed)
+/api
+/csms
+apps/api/server
+apps/csms/server
+
+# === SQLite (local DB lives at runtime, not in VCS) ======================
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+# Common local data dirs
+data/
+**/data/*.db
+*.bak
+
+# === Environment / secrets ===============================================
+.env
+.env.*
+!.env.example
+!.env.sample
+*.local
+.envrc
+
+# === Logs ================================================================
+logs/
+*.log
+**/*.log
+
+# === Test / coverage reports =============================================
+coverage/
+**/coverage/
+.nyc_output/
+*.lcov
+junit.xml
+test-results/
+
+# === Editors / IDE =======================================================
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+.history/
+
+# === macOS ===============================================================
+.DS_Store
+.DS_Store?
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+
+# === Linux / Windows (for cross-platform contributors) ===================
+*.pid
+*.seed
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# === Docker ==============================================================
+# (docker/ config is tracked; ignore local override + volumes)
+docker-compose.override.yml
+.docker/
+
+# === Misc / temp =========================================================
+tmp/
+.tmp/
+*.tmp
+.cache/

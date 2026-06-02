@@ -122,6 +122,26 @@ export async function setConnectorStatus(chargePointId: string, connectorId: num
   if (!res.ok) throw new Error('failed to set connector status')
 }
 
+export async function remoteStart(chargePointId: string, idTag: string = 'DEADBEEF', connectorId?: number): Promise<{ status: string }> {
+  const res = await fetch(`/api/charge-points/${chargePointId}/remote-start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idTag, connectorId }),
+  })
+  if (!res.ok) throw new Error('failed to simulate remote start')
+  return res.json()
+}
+
+export async function remoteStop(chargePointId: string, transactionId: number): Promise<{ status: string }> {
+  const res = await fetch(`/api/charge-points/${chargePointId}/remote-stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ transactionId }),
+  })
+  if (!res.ok) throw new Error('failed to simulate remote stop')
+  return res.json()
+}
+
 export function connectChargePointWS(chargePointId: string): WebSocket {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host

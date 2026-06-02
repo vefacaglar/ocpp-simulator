@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useChargePointStore } from '../stores/chargePointStore'
 
 const store = useChargePointStore()
@@ -9,8 +9,36 @@ const connected = computed(() => store.selectedId ? store.isConnected(store.sele
 const registered = computed(() => store.isRegistered)
 const regState = computed(() => store.registrationState)
 
+const idTagInputs = ref<Map<number, string>>(new Map())
+
+function getIdTag(connectorId: number): string {
+  return idTagInputs.value.get(connectorId) ?? ''
+}
+
+function setIdTag(connectorId: number, value: string) {
+  idTagInputs.value.set(connectorId, value)
+}
+
+function connectorStatus(connectorId: number): string {
+  return store.getConnectorStatus(connectorId)
+}
+
 function statusClass(status: string) {
   return status.toLowerCase().replace(/[^a-z]/g, '')
+}
+
+function handleAuthorize(connectorId: number) {
+  const idTag = getIdTag(connectorId)
+  if (!idTag.trim()) {
+    store.error = 'idTag is required for Authorize'
+    return
+  }
+  store.authorizeConnector(connectorId, idTag.trim())
+}
+
+function handleSimulateRemoteStart(connectorId: number) {
+  const idTag = getIdTag(connectorId) || 'DEADBEEF'
+  store.simulateRemoteStart(idTag, connectorId)
 }
 </script>
 
@@ -55,16 +83,66 @@ function statusClass(status: string) {
             <div v-for="c in connectors" :key="c.id" class="connector-card">
               <div class="connector-top">
                 <span class="connector-num">Connector {{ c.connectorNumber }}</span>
-                <span class="connector-status" :class="statusClass(c.status)">{{ c.status }}</span>
+                <span class="connector-status" :class="statusClass(connectorStatus(c.connectorNumber))">
+                  {{ connectorStatus(c.connectorNumber) }}
+                </span>
               </div>
-              <div class="connector-actions">
-                <button v-if="c.status === 'Available' && registered" class="btn-action" @click="store.startConnectorTransaction(c.connectorNumber)">Start TX</button>
-                <button v-if="c.status === 'Charging'" class="btn-action btn-stop" @click="store.stopConnectorTransaction(c.connectorNumber)">Stop TX</button>
-                <button v-if="c.status === 'Charging'" class="btn-action" @click="store.sendConnectorMeterValues(c.connectorNumber)">MeterValues</button>
-                <button v-if="c.status === 'Available' && registered" class="btn-action btn-fault" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
-                <button v-if="c.status === 'Faulted'" class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Available')">Clear</button>
-                <button v-if="c.status === 'Available' && registered" class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Unavailable')">Disable</button>
-                <button v-if="c.status === 'Unavailable'" class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Available')">Enable</button>
+
+              <!-- Available: Plug In, Fault, Disable -->
+              <div v-if="connectorStatus(c.connectorNumber) === 'Available' && registered" class="connector-actions">
+                <button class="btn-action btn-plug" @click="store.plugInConnector(c.connectorNumber)">Plug In</button>
+                <button class="btn-action btn-fault" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
+                <button class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Unavailable')">Disable</button>
+              </div>
+
+              <!-- Preparing: Authorize (with idTag input), Unplug, Fault, Simulate Remote Start -->
+              <div v-else-if="connectorStatus(c.connectorNumber) === 'Preparing'" class="connector-actions-col">
+                <div class="auth-row">
+                  <input
+                    class="idtag-input"
+                    type="text"
+                    placeholder="idTag (e.g. ABCDEF12)"
+                    :value="getIdTag(c.connectorNumber)"
+                    @input="setIdTag(c.connectorNumber, ($event.target as HTMLInputElement).value)"
+                    @keyup.enter="handleAuthorize(c.connectorNumber)"
+                  />
+                  <button class="btn-action btn-authorize" @click="handleAuthorize(c.connectorNumber)">Authorize</button>
+                </div>
+                <div class="action-row">
+                  <button class="btn-action" @click="store.unplugConnector(c.connectorNumber)">Unplug</button>
+                  <button class="btn-action btn-fault" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
+                </div>
+                <div class="dev-tools">
+                  <span class="dev-label">Dev</span>
+                  <button class="btn-action btn-dev" @click="handleSimulateRemoteStart(c.connectorNumber)">Simulate Remote Start</button>
+                </div>
+              </div>
+
+              <!-- Charging: Stop, MeterValues, Fault -->
+              <div v-else-if="connectorStatus(c.connectorNumber) === 'Charging'" class="connector-actions">
+                <button class="btn-action btn-stop" @click="store.stopConnectorTransaction(c.connectorNumber)">Stop</button>
+                <button class="btn-action" @click="store.sendConnectorMeterValues(c.connectorNumber)">MeterValues</button>
+                <button class="btn-action btn-fault" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
+              </div>
+
+              <!-- Finishing: Unplug -->
+              <div v-else-if="connectorStatus(c.connectorNumber) === 'Finishing'" class="connector-actions">
+                <button class="btn-action btn-plug" @click="store.unplugConnector(c.connectorNumber)">Unplug</button>
+              </div>
+
+              <!-- Faulted: Clear -->
+              <div v-else-if="connectorStatus(c.connectorNumber) === 'Faulted'" class="connector-actions">
+                <button class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Available')">Clear Fault</button>
+              </div>
+
+              <!-- Unavailable: Enable -->
+              <div v-else-if="connectorStatus(c.connectorNumber) === 'Unavailable'" class="connector-actions">
+                <button class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Available')">Enable</button>
+              </div>
+
+              <!-- Default fallback (not registered) -->
+              <div v-else-if="!registered" class="connector-actions">
+                <span class="empty-hint">Register (Boot) to control connectors.</span>
               </div>
             </div>
           </div>
@@ -109,6 +187,7 @@ function statusClass(status: string) {
 .connector-status.faulted { background: #fde8e8; color: #c53030; }
 .connector-status.unavailable { background: #f3f4f6; color: #9ca3af; }
 .connector-actions { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.connector-actions-col { display: flex; flex-direction: column; gap: 0.35rem; }
 .connection-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .btn-connect { padding: 0.4rem 1rem; font-size: 0.8rem; border: 1px solid #16a34a; border-radius: 4px; background: #16a34a; color: #fff; cursor: pointer; font-weight: 600; }
 .btn-connect:hover { background: #15803d; }
@@ -120,4 +199,16 @@ function statusClass(status: string) {
 .btn-action.btn-stop { border-color: #fca5a5; color: #dc2626; }
 .btn-action.btn-stop:hover { background: #fef2f2; }
 .btn-action.btn-fault { border-color: #fca5a5; color: #dc2626; }
+.btn-action.btn-plug { border-color: #86efac; color: #16a34a; }
+.btn-action.btn-plug:hover { background: #f0fdf4; }
+.btn-action.btn-authorize { border-color: #93c5fd; color: #2563eb; font-weight: 600; }
+.btn-action.btn-authorize:hover { background: #eff6ff; }
+.btn-action.btn-dev { border-color: #d8b4fe; color: #7c3aed; font-style: italic; font-size: 0.6rem; }
+.btn-action.btn-dev:hover { background: #faf5ff; }
+.auth-row { display: flex; gap: 0.25rem; align-items: center; }
+.action-row { display: flex; gap: 0.25rem; }
+.dev-tools { display: flex; gap: 0.25rem; align-items: center; margin-top: 0.15rem; padding-top: 0.25rem; border-top: 1px dashed #e5e7eb; }
+.dev-label { font-size: 0.55rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em; }
+.idtag-input { padding: 0.2rem 0.4rem; font-size: 0.65rem; border: 1px solid #d1d5db; border-radius: 3px; width: 120px; font-family: monospace; }
+.idtag-input:focus { outline: none; border-color: #93c5fd; box-shadow: 0 0 0 1px #93c5fd; }
 </style>

@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/user/ocpp-simulator/apps/api/internal/common"
 	"github.com/user/ocpp-simulator/apps/api/internal/db"
+	"github.com/user/ocpp-simulator/apps/api/internal/ocpp"
 	"github.com/user/ocpp-simulator/apps/api/internal/realtime"
 	"github.com/user/ocpp-simulator/apps/api/internal/simulator"
 )
@@ -63,6 +64,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/charge-points/{id}/connectors/{connectorId}/stop-transaction", s.handleStopTransaction)
 	s.mux.HandleFunc("POST /api/charge-points/{id}/connectors/{connectorId}/meter-values", s.handleMeterValues)
 	s.mux.HandleFunc("POST /api/charge-points/{id}/connectors/{connectorId}/status", s.handleSetConnectorStatus)
+
+	s.mux.HandleFunc("POST /api/charge-points/{id}/remote-start", s.handleRemoteStart)
+	s.mux.HandleFunc("POST /api/charge-points/{id}/remote-stop", s.handleRemoteStop)
 
 	s.mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	s.mux.HandleFunc("PUT /api/settings", s.handleUpdateSettings)
@@ -384,6 +388,59 @@ func (s *Server) handleSetConnectorStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "connector_status_set"})
+}
+
+type remoteStartRequest struct {
+	IDTag       string `json:"idTag"`
+	ConnectorID *int   `json:"connectorId,omitempty"`
+}
+
+func (s *Server) handleRemoteStart(w http.ResponseWriter, r *http.Request) {
+	cpID := r.PathValue("id")
+
+	var req remoteStartRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.IDTag == "" {
+		req.IDTag = "DEADBEEF"
+	}
+
+	status, err := s.runtime.HandleRemoteStartTransaction(cpID, &ocpp.RemoteStartTransactionRequest{
+		IDTag:       req.IDTag,
+		ConnectorID: req.ConnectorID,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": status})
+}
+
+type remoteStopRequest struct {
+	TransactionID int `json:"transactionId"`
+}
+
+func (s *Server) handleRemoteStop(w http.ResponseWriter, r *http.Request) {
+	cpID := r.PathValue("id")
+
+	var req remoteStopRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	status, err := s.runtime.HandleRemoteStopTransaction(cpID, &ocpp.RemoteStopTransactionRequest{
+		TransactionID: req.TransactionID,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": status})
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {

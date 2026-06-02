@@ -23,6 +23,7 @@ interface ChargePointState {
   pendingCalls: Map<string, { action: string; sentAt: number }>
   transactions: Map<number, TransactionState>
   meterCounter: number
+  meterValuesTimer: ReturnType<typeof setInterval> | null
 }
 
 export const useChargePointStore = defineStore('chargePoint', () => {
@@ -136,6 +137,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
         pendingCalls: new Map(),
         transactions: new Map(),
         meterCounter: 0,
+        meterValuesTimer: null,
       }
       cpStates.value.set(cpId, state)
 
@@ -144,8 +146,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
         chargePointVendor: "Simulator",
         chargePointModel: "OCPP-Sim"
       }]
-      state.pendingCalls.set(uniqueId, { action: "BootNotification", sentAt: Date.now() })
-      ws.send(JSON.stringify(frame))
+      sendMessage(cpId, frame, "BootNotification")
 
       loadChargePoints()
       selectChargePoint(cpId)
@@ -265,7 +266,65 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       pendingTx.transactionId = transactionId
       pendingTx.status = 'charging'
       sendStatusNotification(cpId, pendingTx.connectorId, "Charging", "NoError")
+
+      startMeterValuesTimer(cpId)
     }
+  }
+
+  function startMeterValuesTimer(cpId: string) {
+    const state = cpStates.value.get(cpId)
+    if (!state) return
+
+    if (state.meterValuesTimer) {
+      clearInterval(state.meterValuesTimer)
+    }
+
+    state.meterValuesTimer = setInterval(() => {
+      for (const [connectorId, tx] of state.transactions) {
+        if (tx.status === 'charging' && tx.transactionId !== null) {
+          sendMeterValuesForTransaction(cpId, connectorId, tx)
+        }
+      }
+    }, 10000)
+  }
+
+  function stopMeterValuesTimer(cpId: string) {
+    const state = cpStates.value.get(cpId)
+    if (state?.meterValuesTimer) {
+      clearInterval(state.meterValuesTimer)
+      state.meterValuesTimer = null
+    }
+  }
+
+  function sendMeterValuesForTransaction(cpId: string, connectorId: number, tx: TransactionState) {
+    const state = cpStates.value.get(cpId)
+    if (!state || state.registration !== 'accepted') return
+
+    state.meterCounter += 100
+    tx.meterCurrent = state.meterCounter
+
+    const uniqueId = generateUniqueId()
+    const frame = [2, uniqueId, "MeterValues", {
+      connectorId,
+      transactionId: tx.transactionId,
+      meterValue: [{
+        timestamp: new Date().toISOString(),
+        sampledValue: [
+          {
+            value: String(tx.meterCurrent),
+            measurand: "Energy.Active.Import.Register",
+            unit: "Wh",
+            context: "Sample.Periodic"
+          },
+          {
+            value: "7360",
+            measurand: "Power.Active.Import",
+            unit: "W"
+          }
+        ]
+      }]
+    }]
+    sendMessage(cpId, frame, "MeterValues")
   }
 
   function sendMessage(cpId: string, frame: unknown[], action: string) {
@@ -325,6 +384,9 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     if (state) {
       if (state.heartbeatTimer) {
         clearTimeout(state.heartbeatTimer)
+      }
+      if (state.meterValuesTimer) {
+        clearInterval(state.meterValuesTimer)
       }
       state.ws.close()
       cpStates.value.delete(cpId)
@@ -410,6 +472,8 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       error.value = 'No active transaction'
       return
     }
+
+    stopMeterValuesTimer(cpId)
 
     sendStatusNotification(cpId, connectorId, "Finishing", "NoError")
 

@@ -8,6 +8,30 @@ const connectors = computed(() => store.selectedDetail?.connectors ?? [])
 const cpId = computed(() => store.selectedId)
 const connected = computed(() => store.selectedDetail?.chargePoint?.status === 'connected')
 
+async function connect() {
+  if (!cpId.value) return
+  await fetch(`/api/charge-points/${cpId.value}/connect`, { method: 'POST' })
+  await store.selectChargePoint(cpId.value)
+  await store.loadChargePoints()
+}
+
+async function disconnect() {
+  if (!cpId.value) return
+  await fetch(`/api/charge-points/${cpId.value}/disconnect`, { method: 'POST' })
+  await store.selectChargePoint(cpId.value)
+  await store.loadChargePoints()
+}
+
+async function boot() {
+  if (!cpId.value) return
+  await fetch(`/api/charge-points/${cpId.value}/boot`, { method: 'POST' })
+}
+
+async function heartbeat() {
+  if (!cpId.value) return
+  await fetch(`/api/charge-points/${cpId.value}/heartbeat`, { method: 'POST' })
+}
+
 async function startTransaction(connectorId: number) {
   if (!cpId.value) return
   await fetch(`/api/charge-points/${cpId.value}/connectors/${connectorId}/start-transaction`, {
@@ -74,6 +98,18 @@ function statusClass(status: string) {
 
         <div class="section">
           <div class="section-header">
+            <h3>Connection</h3>
+          </div>
+          <div class="connection-actions">
+            <button v-if="!connected" class="btn-connect" @click="connect">Connect</button>
+            <button v-else class="btn-disconnect" @click="disconnect">Disconnect</button>
+            <button class="btn-action" :disabled="!connected" @click="boot">Boot</button>
+            <button class="btn-action" :disabled="!connected" @click="heartbeat">Heartbeat</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-header">
             <h3>Connectors</h3>
             <button class="btn-small" @click="addConnector">+ Add</button>
           </div>
@@ -102,39 +138,45 @@ function statusClass(status: string) {
 </template>
 
 <style scoped>
-.charge-point-detail { display: flex; flex-direction: column; height: 100%; background: #0f0f1a; }
-.panel-header { display: flex; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid #2a2a3a; background: #16162a; }
-.panel-header h2 { font-size: 0.85rem; font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; color: #8888aa; }
+.charge-point-detail { display: flex; flex-direction: column; height: 100%; background: #f5f5f8; }
+.panel-header { display: flex; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid #ddd; background: #fafafa; }
+.panel-header h2 { font-size: 0.85rem; font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; color: #666; }
 .panel-body { flex: 1; overflow-y: auto; padding: 1rem; }
-.empty-state { text-align: center; margin-top: 2rem; color: #555; font-size: 0.85rem; }
+.empty-state { text-align: center; margin-top: 2rem; color: #999; font-size: 0.85rem; }
 .detail-content { display: flex; flex-direction: column; gap: 1.5rem; }
-.section h3 { font-size: 0.9rem; color: #c0c0e0; margin-bottom: 0.5rem; }
+.section h3 { font-size: 0.9rem; color: #333; margin-bottom: 0.5rem; }
 .section-header { display: flex; align-items: center; justify-content: space-between; }
 .section-header h3 { margin-bottom: 0; }
 .field { display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.8rem; }
-.label { color: #666; }
-.url { font-family: monospace; font-size: 0.75rem; color: #8888cc; }
+.label { color: #999; }
+.url { font-family: monospace; font-size: 0.75rem; color: #6366f1; }
 .status { font-size: 0.7rem; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
-.status.disconnected { background: #3a2020; color: #e06060; }
-.status.connected { background: #203a20; color: #60e060; }
-.btn-small { padding: 0.25rem 0.5rem; font-size: 0.75rem; border: 1px solid #4a4a6a; border-radius: 4px; background: transparent; color: #8888aa; cursor: pointer; }
-.btn-small:hover { background: #2a2a4a; color: #e0e0e0; }
-.empty-hint { font-size: 0.8rem; color: #555; }
+.status.disconnected { background: #fde8e8; color: #c53030; }
+.status.connected { background: #dcfce7; color: #16a34a; }
+.btn-small { padding: 0.25rem 0.5rem; font-size: 0.75rem; border: 1px solid #ccc; border-radius: 4px; background: transparent; color: #666; cursor: pointer; }
+.btn-small:hover { background: #eee; color: #333; }
+.empty-hint { font-size: 0.8rem; color: #999; }
 .connector-list { display: flex; flex-direction: column; gap: 0.5rem; }
-.connector-card { padding: 0.5rem 0.75rem; border: 1px solid #2a2a3a; border-radius: 6px; background: #161628; }
+.connector-card { padding: 0.5rem 0.75rem; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
 .connector-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
-.connector-num { font-size: 0.8rem; font-weight: 600; color: #c0c0e0; }
+.connector-num { font-size: 0.8rem; font-weight: 600; color: #333; }
 .connector-status { font-size: 0.65rem; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
-.connector-status.available { background: #203a20; color: #60e060; }
-.connector-status.charging { background: #203050; color: #60a0e0; }
-.connector-status.preparing { background: #3a3a20; color: #e0c060; }
-.connector-status.finishing { background: #2a2a40; color: #a0a0c0; }
-.connector-status.faulted { background: #3a2020; color: #e06060; }
-.connector-status.unavailable { background: #2a2a2a; color: #888; }
+.connector-status.available { background: #dcfce7; color: #16a34a; }
+.connector-status.charging { background: #dbeafe; color: #2563eb; }
+.connector-status.preparing { background: #fef9c3; color: #a16207; }
+.connector-status.finishing { background: #e8e8f0; color: #6b7280; }
+.connector-status.faulted { background: #fde8e8; color: #c53030; }
+.connector-status.unavailable { background: #f3f4f6; color: #9ca3af; }
 .connector-actions { display: flex; gap: 0.25rem; flex-wrap: wrap; }
-.btn-action { padding: 0.2rem 0.5rem; font-size: 0.65rem; border: 1px solid #3a3a5a; border-radius: 3px; background: #1a1a2e; color: #8888bb; cursor: pointer; }
-.btn-action:hover { background: #2a2a4e; color: #c0c0e0; }
-.btn-action.btn-stop { border-color: #5a3a3a; color: #e08080; }
-.btn-action.btn-stop:hover { background: #3a2020; }
-.btn-action.btn-fault { border-color: #5a3a3a; color: #e06060; }
+.connection-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.btn-connect { padding: 0.4rem 1rem; font-size: 0.8rem; border: 1px solid #16a34a; border-radius: 4px; background: #16a34a; color: #fff; cursor: pointer; font-weight: 600; }
+.btn-connect:hover { background: #15803d; }
+.btn-disconnect { padding: 0.4rem 1rem; font-size: 0.8rem; border: 1px solid #dc2626; border-radius: 4px; background: #dc2626; color: #fff; cursor: pointer; font-weight: 600; }
+.btn-disconnect:hover { background: #b91c1c; }
+.btn-action { padding: 0.2rem 0.5rem; font-size: 0.65rem; border: 1px solid #ddd; border-radius: 3px; background: #fff; color: #666; cursor: pointer; }
+.btn-action:hover { background: #f5f5f8; color: #333; }
+.btn-action:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-action.btn-stop { border-color: #fca5a5; color: #dc2626; }
+.btn-action.btn-stop:hover { background: #fef2f2; }
+.btn-action.btn-fault { border-color: #fca5a5; color: #dc2626; }
 </style>

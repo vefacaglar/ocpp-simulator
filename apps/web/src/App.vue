@@ -58,10 +58,10 @@ watch(
 
 <style scoped>
 .app-shell { display: flex; flex-direction: column; height: 100vh; font-family: system-ui, -apple-system, sans-serif; }
-.top-bar { display: flex; align-items: center; justify-content: space-between; padding: 0 1rem; height: 48px; background: #1a1a2e; color: #e0e0e0; border-bottom: 1px solid #333; }
+.top-bar { display: flex; align-items: center; justify-content: space-between; padding: 0 1rem; height: 48px; background: #fff; color: #1a1a2e; border-bottom: 1px solid #ddd; }
 .top-bar h1 { font-size: 1rem; font-weight: 600; margin: 0; }
-.top-bar-status { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #888; }
+.top-bar-status { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #666; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #e06060; }
-.status-dot.online { background: #4ade80; }
+.status-dot.online { background: #22c55e; }
 .content { flex: 1; display: grid; grid-template-columns: 260px 1fr 380px; overflow: hidden; }
 </style>

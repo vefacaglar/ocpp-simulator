@@ -56,22 +56,22 @@ async function onDelete(id: string, e: Event) {
 </template>
 
 <style scoped>
-.charge-point-list { display: flex; flex-direction: column; height: 100%; background: #12121f; border-right: 1px solid #2a2a3a; }
-.panel-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-bottom: 1px solid #2a2a3a; background: #16162a; }
-.panel-header h2 { font-size: 0.85rem; font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; color: #8888aa; }
-.btn-add { width: 24px; height: 24px; border: 1px solid #4a4a6a; border-radius: 4px; background: transparent; color: #8888aa; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.btn-add:hover { background: #2a2a4a; color: #e0e0e0; }
+.charge-point-list { display: flex; flex-direction: column; height: 100%; background: #fff; border-right: 1px solid #ddd; }
+.panel-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-bottom: 1px solid #ddd; background: #fafafa; }
+.panel-header h2 { font-size: 0.85rem; font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; color: #666; }
+.btn-add { width: 24px; height: 24px; border: 1px solid #ccc; border-radius: 4px; background: transparent; color: #666; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.btn-add:hover { background: #eee; color: #333; }
 .panel-body { flex: 1; overflow-y: auto; padding: 0.5rem; }
-.empty-state { text-align: center; margin-top: 2rem; color: #555; font-size: 0.85rem; }
-.empty-state .hint { margin-top: 0.25rem; font-size: 0.75rem; color: #444; }
+.empty-state { text-align: center; margin-top: 2rem; color: #999; font-size: 0.85rem; }
+.empty-state .hint { margin-top: 0.25rem; font-size: 0.75rem; color: #bbb; }
 .cp-items { display: flex; flex-direction: column; gap: 0.25rem; }
 .cp-item { padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; border: 1px solid transparent; transition: all 0.15s; }
-.cp-item:hover { background: #1a1a30; }
-.cp-item.selected { background: #1e1e3a; border-color: #4a4a8a; }
+.cp-item:hover { background: #f0f0f5; }
+.cp-item.selected { background: #e8e8f4; border-color: #b0b0d0; }
 .cp-info { display: flex; align-items: center; justify-content: space-between; }
-.cp-id { font-size: 0.85rem; font-weight: 600; color: #e0e0e0; }
-.cp-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 0.25rem; font-size: 0.7rem; color: #666; }
-.btn-delete { background: none; border: none; color: #666; cursor: pointer; font-size: 1rem; padding: 0 4px; }
+.cp-id { font-size: 0.85rem; font-weight: 600; color: #1a1a2e; }
+.cp-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 0.25rem; font-size: 0.7rem; color: #999; }
+.btn-delete { background: none; border: none; color: #999; cursor: pointer; font-size: 1rem; padding: 0 4px; }
 .btn-delete:hover { color: #e06060; }
-.error-bar { padding: 0.5rem 1rem; background: #3a2020; color: #e06060; font-size: 0.75rem; border-top: 1px solid #4a2020; }
+.error-bar { padding: 0.5rem 1rem; background: #fde8e8; color: #c53030; font-size: 0.75rem; border-top: 1px solid #fcd5d5; }
 </style>

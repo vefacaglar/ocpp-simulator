@@ -87,6 +87,16 @@ func (s *Server) handleListChargePoints(w http.ResponseWriter, r *http.Request) 
 	if list == nil {
 		list = []common.ChargePoint{}
 	}
+	for i := range list {
+		if rt, ok := s.runtime.GetChargePoint(list[i].ID); ok {
+			rt.Mu.RLock()
+			if rt.Connected {
+				list[i].Status = common.StatusConnected
+			}
+			list[i].ConnectorCount = len(rt.Connectors)
+			rt.Mu.RUnlock()
+		}
+	}
 	writeJSON(w, http.StatusOK, list)
 }
 
@@ -148,6 +158,15 @@ func (s *Server) handleGetChargePoint(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get charge point")
 		return
+	}
+
+	if rt, ok := s.runtime.GetChargePoint(id); ok {
+		rt.Mu.RLock()
+		if rt.Connected {
+			cp.Status = common.StatusConnected
+		}
+		cp.ConnectorCount = len(rt.Connectors)
+		rt.Mu.RUnlock()
 	}
 
 	connectors, err := s.connectorRepo.ListByChargePoint(r.Context(), id)

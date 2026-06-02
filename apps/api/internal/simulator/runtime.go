@@ -27,7 +27,7 @@ type ChargePointInstance struct {
 	Connectors   map[int]*ConnectorRuntime
 	Connected    bool
 	Client       *OcppWebSocketClient
-	mu           sync.RWMutex
+	Mu           sync.RWMutex
 }
 
 type Runtime struct {
@@ -65,12 +65,12 @@ func (r *Runtime) RemoveChargePoint(id string) {
 	r.mu.Lock()
 	cp, exists := r.chargePoints[id]
 	if exists {
-		cp.mu.Lock()
+		cp.Mu.Lock()
 		if cp.Client != nil {
 			cp.Client.Disconnect()
 		}
 		cp.Connected = false
-		cp.mu.Unlock()
+		cp.Mu.Unlock()
 		delete(r.chargePoints, id)
 	}
 	r.mu.Unlock()
@@ -95,18 +95,18 @@ func (r *Runtime) Connect(id string) error {
 	client := NewOcppWebSocketClient(id, cp.Config.CentralSystemURL, protocol, r.eventBus)
 	client.SetResponseHandler(r.handleOCPPResponse)
 
-	cp.mu.Lock()
+	cp.Mu.Lock()
 	cp.Client = client
-	cp.mu.Unlock()
+	cp.Mu.Unlock()
 
 	if err := client.Connect(context.Background()); err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
 
-	cp.mu.Lock()
+	cp.Mu.Lock()
 	cp.Connected = true
 	cp.Config.Status = common.StatusConnected
-	cp.mu.Unlock()
+	cp.Mu.Unlock()
 
 	return nil
 }
@@ -119,8 +119,8 @@ func (r *Runtime) Disconnect(id string) error {
 		return fmt.Errorf("charge point %s not found", id)
 	}
 
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
+	cp.Mu.Lock()
+	defer cp.Mu.Unlock()
 
 	if cp.Client != nil {
 		if err := cp.Client.Disconnect(); err != nil {
@@ -140,9 +140,9 @@ func (r *Runtime) SendBootNotification(id string) error {
 	if !ok {
 		return fmt.Errorf("charge point %s not found", id)
 	}
-	cp.mu.Lock()
+	cp.Mu.Lock()
 	client := cp.Client
-	cp.mu.Unlock()
+	cp.Mu.Unlock()
 	if client == nil {
 		return fmt.Errorf("charge point %s not connected", id)
 	}
@@ -156,9 +156,9 @@ func (r *Runtime) SendHeartbeat(id string) error {
 	if !ok {
 		return fmt.Errorf("charge point %s not found", id)
 	}
-	cp.mu.Lock()
+	cp.Mu.Lock()
 	client := cp.Client
-	cp.mu.Unlock()
+	cp.Mu.Unlock()
 	if client == nil {
 		return fmt.Errorf("charge point %s not connected", id)
 	}
@@ -173,8 +173,8 @@ func (r *Runtime) AddConnector(cpID string, connector common.Connector) error {
 		return fmt.Errorf("charge point %s not found", cpID)
 	}
 
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
+	cp.Mu.Lock()
+	defer cp.Mu.Unlock()
 	cp.Connectors[connector.ConnectorNumber] = &ConnectorRuntime{
 		Number:       connector.ConnectorNumber,
 		StateMachine: NewConnectorStateMachine(StateAvailable),
@@ -191,23 +191,23 @@ func (r *Runtime) SetConnectorStatus(cpID string, connectorID int, status common
 		return fmt.Errorf("charge point %s not found", cpID)
 	}
 
-	cp.mu.Lock()
+	cp.Mu.Lock()
 	cr, exists := cp.Connectors[connectorID]
 	if !exists {
-		cp.mu.Unlock()
+		cp.Mu.Unlock()
 		return fmt.Errorf("connector %d not found", connectorID)
 	}
 
 	if err := cr.StateMachine.Transition(ConnectorState(status)); err != nil {
-		cp.mu.Unlock()
+		cp.Mu.Unlock()
 		return err
 	}
-	cp.mu.Unlock()
+	cp.Mu.Unlock()
 
-	cp.mu.RLock()
+	cp.Mu.RLock()
 	client := cp.Client
 	connected := cp.Connected
-	cp.mu.RUnlock()
+	cp.Mu.RUnlock()
 
 	if connected && client != nil {
 		client.SendStatusNotification(context.Background(), connectorID, string(status), "NoError")
@@ -226,11 +226,11 @@ func (r *Runtime) StartTransaction(cpID string, connectorID int, idTag string) e
 		return fmt.Errorf("charge point %s not found", cpID)
 	}
 
-	cp.mu.Lock()
+	cp.Mu.Lock()
 	client := cp.Client
 	connected := cp.Connected
 	cr, connExists := cp.Connectors[connectorID]
-	cp.mu.Unlock()
+	cp.Mu.Unlock()
 
 	if !connected || client == nil {
 		return fmt.Errorf("charge point %s not connected", cpID)
@@ -239,14 +239,14 @@ func (r *Runtime) StartTransaction(cpID string, connectorID int, idTag string) e
 		return fmt.Errorf("connector %d not found", connectorID)
 	}
 
-	cp.mu.RLock()
+	cp.Mu.RLock()
 	version := cp.Config.OCPPVersion
-	cp.mu.RUnlock()
+	cp.Mu.RUnlock()
 
 	// Check if connector already has active transaction
-	cp.mu.RLock()
+	cp.Mu.RLock()
 	hasActive := cr.TransactionID != ""
-	cp.mu.RUnlock()
+	cp.Mu.RUnlock()
 	if hasActive {
 		return fmt.Errorf("connector %d already has an active transaction", connectorID)
 	}
@@ -271,9 +271,9 @@ func (r *Runtime) StartTransaction(cpID string, connectorID int, idTag string) e
 		return fmt.Errorf("create transaction: %w", err)
 	}
 
-	cp.mu.Lock()
+	cp.Mu.Lock()
 	cr.TransactionID = txID
-	cp.mu.Unlock()
+	cp.Mu.Unlock()
 
 	// Send StartTransaction via OCPP
 	msg, err := client.protocol.BuildStartTransaction(context.Background(), ocpp.StartTransactionInput{
@@ -312,7 +312,7 @@ func (r *Runtime) HandleStartTransactionResponse(cpID string, msg ocpp.Message) 
 
 	// Find the pending transaction by matching the pending call
 	// For now, find the most recent pending_start transaction
-	cp.mu.RLock()
+	cp.Mu.RLock()
 	var targetConnector int
 	var txID string
 	for num, cr := range cp.Connectors {
@@ -322,7 +322,7 @@ func (r *Runtime) HandleStartTransactionResponse(cpID string, msg ocpp.Message) 
 			break
 		}
 	}
-	cp.mu.RUnlock()
+	cp.Mu.RUnlock()
 
 	if txID == "" {
 		log.Printf("[%s] no pending transaction found for StartTransaction.conf", cpID)
@@ -340,10 +340,10 @@ func (r *Runtime) HandleStartTransactionResponse(cpID string, msg ocpp.Message) 
 		r.SetConnectorStatus(cpID, targetConnector, common.ConnectorCharging)
 
 		// Start meter value generator
-		cp.mu.Lock()
+		cp.Mu.Lock()
 		cr := cp.Connectors[targetConnector]
 		cr.MeterGen.Start(cr.MeterGen.CurrentMeterWh())
-		cp.mu.Unlock()
+		cp.Mu.Unlock()
 
 		r.publishEvent("transaction.confirmed", cpID, &targetConnector,
 			fmt.Sprintf("Transaction %s confirmed, numericId=%d", txID, resp.TransactionID))
@@ -353,9 +353,9 @@ func (r *Runtime) HandleStartTransactionResponse(cpID string, msg ocpp.Message) 
 		r.transactionRepo.UpdateStatus(context.Background(), txID, "failed")
 		r.SetConnectorStatus(cpID, targetConnector, common.ConnectorAvailable)
 
-		cp.mu.Lock()
+		cp.Mu.Lock()
 		cp.Connectors[targetConnector].TransactionID = ""
-		cp.mu.Unlock()
+		cp.Mu.Unlock()
 
 		r.publishEvent("transaction.failed", cpID, &targetConnector,
 			fmt.Sprintf("Transaction %s rejected: %s", txID, resp.IDTagInfo.Status))
@@ -370,11 +370,11 @@ func (r *Runtime) StopTransaction(cpID string, connectorID int, reason string) e
 		return fmt.Errorf("charge point %s not found", cpID)
 	}
 
-	cp.mu.Lock()
+	cp.Mu.Lock()
 	client := cp.Client
 	connected := cp.Connected
 	cr, connExists := cp.Connectors[connectorID]
-	cp.mu.Unlock()
+	cp.Mu.Unlock()
 
 	if !connected || client == nil {
 		return fmt.Errorf("charge point %s not connected", cpID)
@@ -383,18 +383,18 @@ func (r *Runtime) StopTransaction(cpID string, connectorID int, reason string) e
 		return fmt.Errorf("connector %d not found", connectorID)
 	}
 
-	cp.mu.RLock()
+	cp.Mu.RLock()
 	txID := cr.TransactionID
-	cp.mu.RUnlock()
+	cp.Mu.RUnlock()
 
 	if txID == "" {
 		return fmt.Errorf("no active transaction on connector %d", connectorID)
 	}
 
 	// Stop meter generator and get final meter
-	cp.mu.Lock()
+	cp.Mu.Lock()
 	meterStop := cr.MeterGen.Stop()
-	cp.mu.Unlock()
+	cp.Mu.Unlock()
 
 	// Get numeric_id from DB
 	tx, err := r.transactionRepo.GetByID(context.Background(), txID)
@@ -428,9 +428,9 @@ func (r *Runtime) StopTransaction(cpID string, connectorID int, reason string) e
 	// Transition: Charging -> Finishing -> Available
 	r.SetConnectorStatus(cpID, connectorID, common.ConnectorFinishing)
 
-	cp.mu.Lock()
+	cp.Mu.Lock()
 	cr.TransactionID = ""
-	cp.mu.Unlock()
+	cp.Mu.Unlock()
 
 	r.SetConnectorStatus(cpID, connectorID, common.ConnectorAvailable)
 
@@ -448,11 +448,11 @@ func (r *Runtime) SendMeterValues(cpID string, connectorID int) error {
 		return fmt.Errorf("charge point %s not found", cpID)
 	}
 
-	cp.mu.Lock()
+	cp.Mu.Lock()
 	client := cp.Client
 	connected := cp.Connected
 	cr, connExists := cp.Connectors[connectorID]
-	cp.mu.Unlock()
+	cp.Mu.Unlock()
 
 	if !connected || client == nil {
 		return fmt.Errorf("charge point %s not connected", cpID)
@@ -461,9 +461,9 @@ func (r *Runtime) SendMeterValues(cpID string, connectorID int) error {
 		return fmt.Errorf("connector %d not found", connectorID)
 	}
 
-	cp.mu.RLock()
+	cp.Mu.RLock()
 	txID := cr.TransactionID
-	cp.mu.RUnlock()
+	cp.Mu.RUnlock()
 
 	if txID == "" {
 		return fmt.Errorf("no active transaction on connector %d", connectorID)
@@ -528,8 +528,8 @@ func (r *Runtime) GetConnectorState(cpID string, connectorID int) (ConnectorStat
 	if !ok {
 		return "", fmt.Errorf("charge point %s not found", cpID)
 	}
-	cp.mu.RLock()
-	defer cp.mu.RUnlock()
+	cp.Mu.RLock()
+	defer cp.Mu.RUnlock()
 	cr, exists := cp.Connectors[connectorID]
 	if !exists {
 		return "", fmt.Errorf("connector %d not found", connectorID)
@@ -544,8 +544,8 @@ func (r *Runtime) GetMeterValue(cpID string, connectorID int) (int, error) {
 	if !ok {
 		return 0, fmt.Errorf("charge point %s not found", cpID)
 	}
-	cp.mu.RLock()
-	defer cp.mu.RUnlock()
+	cp.Mu.RLock()
+	defer cp.Mu.RUnlock()
 	cr, exists := cp.Connectors[connectorID]
 	if !exists {
 		return 0, fmt.Errorf("connector %d not found", connectorID)

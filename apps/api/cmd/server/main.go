@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 
@@ -37,6 +38,18 @@ func main() {
 	connRepo := db.NewConnectorRepo(database)
 
 	runtime := simulator.NewRuntime(eventBus, factory, txRepo, msgRepo, connRepo)
+
+	cpRepo := db.NewChargePointRepo(database)
+	existingCPs, err := cpRepo.List(context.Background())
+	if err != nil {
+		log.Printf("warning: failed to load existing charge points: %v", err)
+	} else {
+		for _, cp := range existingCPs {
+			runtime.AddChargePoint(cp)
+			log.Printf("loaded charge point: %s", cp.ID)
+		}
+	}
+
 	server := api.NewServer(database, runtime, hub)
 
 	addr := ":" + cfg.Port

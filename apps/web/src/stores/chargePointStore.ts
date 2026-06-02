@@ -5,6 +5,15 @@ import type { ChargePoint, Connector } from '../api/chargePointsApi'
 
 type RegistrationState = 'disconnected' | 'pending' | 'accepted' | 'rejected'
 
+interface TransactionState {
+  transactionId: number | null
+  connectorId: number
+  idTag: string
+  meterStart: number
+  meterCurrent: number
+  status: 'preparing' | 'charging' | 'finishing'
+}
+
 interface ChargePointState {
   ws: WebSocket
   registration: RegistrationState
@@ -12,6 +21,8 @@ interface ChargePointState {
   heartbeatTimer: ReturnType<typeof setTimeout> | null
   lastMessageSentAt: number
   pendingCalls: Map<string, { action: string; sentAt: number }>
+  transactions: Map<number, TransactionState>
+  meterCounter: number
 }
 
 export const useChargePointStore = defineStore('chargePoint', () => {
@@ -123,6 +134,8 @@ export const useChargePointStore = defineStore('chargePoint', () => {
         heartbeatTimer: null,
         lastMessageSentAt: Date.now(),
         pendingCalls: new Map(),
+        transactions: new Map(),
+        meterCounter: 0,
       }
       cpStates.value.set(cpId, state)
 
@@ -179,6 +192,8 @@ export const useChargePointStore = defineStore('chargePoint', () => {
 
         if (pending.action === "BootNotification") {
           handleBootNotificationResponse(cpId, state, payload)
+        } else if (pending.action === "StartTransaction") {
+          handleStartTransactionResponse(cpId, state, payload)
         }
       }
     } else if (typeID === 4) {
@@ -240,6 +255,17 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       timestamp: new Date().toISOString()
     }]
     sendMessage(cpId, frame, "StatusNotification")
+  }
+
+  function handleStartTransactionResponse(cpId: string, state: ChargePointState, payload: Record<string, unknown>) {
+    const transactionId = payload.transactionId as number
+
+    const pendingTx = Array.from(state.transactions.values()).find(tx => tx.transactionId === null)
+    if (pendingTx && transactionId) {
+      pendingTx.transactionId = transactionId
+      pendingTx.status = 'charging'
+      sendStatusNotification(cpId, pendingTx.connectorId, "Charging", "NoError")
+    }
   }
 
   function sendMessage(cpId: string, frame: unknown[], action: string) {
@@ -338,58 +364,123 @@ export const useChargePointStore = defineStore('chargePoint', () => {
 
   function startConnectorTransaction(connectorId: number) {
     if (!selectedId.value) return
-    const state = cpStates.value.get(selectedId.value)
+    const cpId = selectedId.value
+    const state = cpStates.value.get(cpId)
     if (!state || state.registration !== 'accepted') {
       error.value = 'Not registered'
       return
     }
+
+    sendStatusNotification(cpId, connectorId, "Preparing", "NoError")
+
+    state.meterCounter += 100
+    const meterStart = state.meterCounter
+
+    const tx: TransactionState = {
+      transactionId: null,
+      connectorId,
+      idTag: "DEADBEEF",
+      meterStart,
+      meterCurrent: meterStart,
+      status: 'preparing',
+    }
+    state.transactions.set(connectorId, tx)
+
     const uniqueId = generateUniqueId()
     const frame = [2, uniqueId, "StartTransaction", {
       connectorId,
-      idTag: "DEADBEEF",
-      meterStart: 0,
+      idTag: tx.idTag,
+      meterStart,
       timestamp: new Date().toISOString()
     }]
-    sendMessage(selectedId.value, frame, "StartTransaction")
+    sendMessage(cpId, frame, "StartTransaction")
   }
 
-  function stopConnectorTransaction(_connectorId: number) {
+  function stopConnectorTransaction(connectorId: number) {
     if (!selectedId.value) return
-    const state = cpStates.value.get(selectedId.value)
+    const cpId = selectedId.value
+    const state = cpStates.value.get(cpId)
     if (!state || state.registration !== 'accepted') {
       error.value = 'Not registered'
       return
     }
+
+    const tx = state.transactions.get(connectorId)
+    if (!tx || tx.transactionId === null) {
+      error.value = 'No active transaction'
+      return
+    }
+
+    sendStatusNotification(cpId, connectorId, "Finishing", "NoError")
+
+    state.meterCounter += 50
+    const meterStop = state.meterCounter
+
     const uniqueId = generateUniqueId()
     const frame = [2, uniqueId, "StopTransaction", {
-      transactionId: 1,
-      meterStop: 1000,
+      transactionId: tx.transactionId,
+      meterStop,
       timestamp: new Date().toISOString(),
-      reason: "Local"
+      reason: "Local",
+      transactionData: [{
+        timestamp: new Date().toISOString(),
+        sampledValue: [{
+          value: String(meterStop),
+          measurand: "Energy.Active.Import.Register",
+          unit: "Wh",
+          context: "Transaction.End"
+        }]
+      }]
     }]
-    sendMessage(selectedId.value, frame, "StopTransaction")
+    sendMessage(cpId, frame, "StopTransaction")
+
+    state.transactions.delete(connectorId)
+
+    setTimeout(() => {
+      sendStatusNotification(cpId, connectorId, "Available", "NoError")
+    }, 500)
   }
 
   function sendConnectorMeterValues(connectorId: number) {
     if (!selectedId.value) return
-    const state = cpStates.value.get(selectedId.value)
+    const cpId = selectedId.value
+    const state = cpStates.value.get(cpId)
     if (!state || state.registration !== 'accepted') {
       error.value = 'Not registered'
       return
     }
+
+    const tx = state.transactions.get(connectorId)
+    if (!tx || tx.transactionId === null) {
+      error.value = 'No active transaction'
+      return
+    }
+
+    state.meterCounter += 10
+    tx.meterCurrent = state.meterCounter
+
     const uniqueId = generateUniqueId()
     const frame = [2, uniqueId, "MeterValues", {
       connectorId,
+      transactionId: tx.transactionId,
       meterValue: [{
         timestamp: new Date().toISOString(),
-        sampledValue: [{
-          value: "1000",
-          measurand: "Energy.Active.Import.Register",
-          unit: "Wh"
-        }]
+        sampledValue: [
+          {
+            value: String(tx.meterCurrent),
+            measurand: "Energy.Active.Import.Register",
+            unit: "Wh",
+            context: "Sample.Periodic"
+          },
+          {
+            value: "7360",
+            measurand: "Power.Active.Import",
+            unit: "W"
+          }
+        ]
       }]
     }]
-    sendMessage(selectedId.value, frame, "MeterValues")
+    sendMessage(cpId, frame, "MeterValues")
   }
 
   function setConnectorStatus(connectorId: number, status: string) {

@@ -9,7 +9,8 @@ interface ChargePointState {
   ws: WebSocket
   registration: RegistrationState
   heartbeatInterval: number | null
-  heartbeatTimer: ReturnType<typeof setInterval> | null
+  heartbeatTimer: ReturnType<typeof setTimeout> | null
+  lastMessageSentAt: number
   pendingCalls: Map<string, { action: string; sentAt: number }>
 }
 
@@ -120,6 +121,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
         registration: 'pending',
         heartbeatInterval: null,
         heartbeatTimer: null,
+        lastMessageSentAt: Date.now(),
         pendingCalls: new Map(),
       }
       cpStates.value.set(cpId, state)
@@ -193,12 +195,8 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       state.registration = 'accepted'
       state.heartbeatInterval = interval
 
-      if (state.heartbeatTimer) {
-        clearInterval(state.heartbeatTimer)
-      }
-      state.heartbeatTimer = setInterval(() => {
-        sendHeartbeat(cpId)
-      }, interval * 1000)
+      sendInitialStatusNotifications(cpId)
+      scheduleHeartbeat(cpId)
 
       loadChargePoints()
       selectChargePoint(cpId)
@@ -221,14 +219,74 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     }
   }
 
+  function sendInitialStatusNotifications(cpId: string) {
+    const detail = selectedDetail.value
+    if (!detail) return
+
+    for (const connector of detail.connectors) {
+      sendStatusNotification(cpId, connector.connectorNumber, "Available", "NoError")
+    }
+  }
+
+  function sendStatusNotification(cpId: string, connectorId: number, status: string, errorCode: string) {
+    const state = cpStates.value.get(cpId)
+    if (!state || state.registration !== 'accepted') return
+
+    const uniqueId = generateUniqueId()
+    const frame = [2, uniqueId, "StatusNotification", {
+      connectorId,
+      errorCode,
+      status,
+      timestamp: new Date().toISOString()
+    }]
+    sendMessage(cpId, frame, "StatusNotification")
+  }
+
+  function sendMessage(cpId: string, frame: unknown[], action: string) {
+    const state = cpStates.value.get(cpId)
+    if (!state || state.ws.readyState !== WebSocket.OPEN) return
+
+    const uniqueId = frame[1] as string
+    state.pendingCalls.set(uniqueId, { action, sentAt: Date.now() })
+    state.lastMessageSentAt = Date.now()
+    state.ws.send(JSON.stringify(frame))
+
+    resetHeartbeatTimer(cpId)
+  }
+
+  function scheduleHeartbeat(cpId: string) {
+    const state = cpStates.value.get(cpId)
+    if (!state || state.registration !== 'accepted' || !state.heartbeatInterval) return
+
+    if (state.heartbeatTimer) {
+      clearTimeout(state.heartbeatTimer)
+      state.heartbeatTimer = null
+    }
+
+    const delay = state.heartbeatInterval * 1000
+    state.heartbeatTimer = setTimeout(() => {
+      const timeSinceLastMessage = Date.now() - state.lastMessageSentAt
+      if (timeSinceLastMessage >= delay) {
+        sendHeartbeat(cpId)
+      }
+      scheduleHeartbeat(cpId)
+    }, delay)
+  }
+
+  function resetHeartbeatTimer(cpId: string) {
+    const state = cpStates.value.get(cpId)
+    if (!state || state.registration !== 'accepted') return
+
+    scheduleHeartbeat(cpId)
+  }
+
   function sendHeartbeat(cpId: string) {
     const state = cpStates.value.get(cpId)
     if (!state || state.registration !== 'accepted') return
 
     const uniqueId = generateUniqueId()
     const frame = [2, uniqueId, "Heartbeat", {}]
-    state.pendingCalls.set(uniqueId, { action: "Heartbeat", sentAt: Date.now() })
-    state.ws.send(JSON.stringify(frame))
+    sendMessage(cpId, frame, "Heartbeat")
   }
 
   function disconnectChargePoint() {
@@ -240,7 +298,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     const state = cpStates.value.get(cpId)
     if (state) {
       if (state.heartbeatTimer) {
-        clearInterval(state.heartbeatTimer)
+        clearTimeout(state.heartbeatTimer)
       }
       state.ws.close()
       cpStates.value.delete(cpId)
@@ -254,14 +312,8 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       error.value = 'Not registered. Send BootNotification first.'
       return
     }
-    if (state.ws.readyState === WebSocket.OPEN) {
-      const uniqueId = frame[1] as string
-      const action = frame[2] as string
-      state.pendingCalls.set(uniqueId, { action, sentAt: Date.now() })
-      state.ws.send(JSON.stringify(frame))
-    } else {
-      error.value = 'WebSocket not connected'
-    }
+    const action = frame[2] as string
+    sendMessage(selectedId.value, frame, action)
   }
 
   function bootChargePoint() {
@@ -276,8 +328,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       chargePointVendor: "Simulator",
       chargePointModel: "OCPP-Sim"
     }]
-    state.pendingCalls.set(uniqueId, { action: "BootNotification", sentAt: Date.now() })
-    state.ws.send(JSON.stringify(frame))
+    sendMessage(selectedId.value, frame, "BootNotification")
   }
 
   function heartbeatChargePoint() {
@@ -299,8 +350,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       meterStart: 0,
       timestamp: new Date().toISOString()
     }]
-    state.pendingCalls.set(uniqueId, { action: "StartTransaction", sentAt: Date.now() })
-    state.ws.send(JSON.stringify(frame))
+    sendMessage(selectedId.value, frame, "StartTransaction")
   }
 
   function stopConnectorTransaction(_connectorId: number) {
@@ -317,8 +367,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       timestamp: new Date().toISOString(),
       reason: "Local"
     }]
-    state.pendingCalls.set(uniqueId, { action: "StopTransaction", sentAt: Date.now() })
-    state.ws.send(JSON.stringify(frame))
+    sendMessage(selectedId.value, frame, "StopTransaction")
   }
 
   function sendConnectorMeterValues(connectorId: number) {
@@ -340,8 +389,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
         }]
       }]
     }]
-    state.pendingCalls.set(uniqueId, { action: "MeterValues", sentAt: Date.now() })
-    state.ws.send(JSON.stringify(frame))
+    sendMessage(selectedId.value, frame, "MeterValues")
   }
 
   function setConnectorStatus(connectorId: number, status: string) {
@@ -358,8 +406,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       status,
       timestamp: new Date().toISOString()
     }]
-    state.pendingCalls.set(uniqueId, { action: "StatusNotification", sentAt: Date.now() })
-    state.ws.send(JSON.stringify(frame))
+    sendMessage(selectedId.value, frame, "StatusNotification")
   }
 
   function isConnected(cpId: string): boolean {

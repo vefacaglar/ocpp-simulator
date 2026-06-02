@@ -87,7 +87,11 @@ function closeDrawer() {
           <div v-if="drawerEvent.direction" class="drawer-field"><span class="label">Direction</span><span>{{ drawerEvent.direction }}</span></div>
           <div v-if="drawerEvent.action" class="drawer-field"><span class="label">Action</span><span>{{ drawerEvent.action }}</span></div>
           <div class="drawer-field"><span class="label">Message</span><span>{{ drawerEvent.message }}</span></div>
-          <div v-if="drawerEvent.payload" class="drawer-payload">
+          <div v-if="drawerEvent.rawFrame" class="drawer-payload">
+            <span class="label">Raw Frame</span>
+            <pre>{{ JSON.stringify(drawerEvent.rawFrame, null, 2) }}</pre>
+          </div>
+          <div v-else-if="drawerEvent.payload" class="drawer-payload">
             <span class="label">Payload</span>
             <pre>{{ JSON.stringify(drawerEvent.payload, null, 2) }}</pre>
           </div>

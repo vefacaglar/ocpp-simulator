@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -68,6 +69,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/versions", s.handleListVersions)
 
 	s.mux.HandleFunc("GET /api/realtime", s.handleRealtime)
+	s.mux.HandleFunc("GET /api/ws/{id}", s.handleChargePointWS)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -473,8 +475,12 @@ func (s *Server) handleRealtime(w http.ResponseWriter, r *http.Request) {
 			ch = s.hub.SubscribeChargePoint(subscribedCP)
 			go func() {
 				for event := range ch {
-					data, _ := json.Marshal(event)
-					conn.WriteMessage(1, data)
+					if len(event.RawFrame) > 0 {
+						conn.WriteMessage(1, event.RawFrame)
+					} else {
+						data, _ := json.Marshal(event)
+						conn.WriteMessage(1, data)
+					}
 				}
 			}()
 		case "unsubscribe":
@@ -484,6 +490,91 @@ func (s *Server) handleRealtime(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func (s *Server) handleChargePointWS(w http.ResponseWriter, r *http.Request) {
+	cpID := r.PathValue("id")
+
+	cp, ok := s.runtime.GetChargePoint(cpID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "charge point not found")
+		return
+	}
+
+	uiConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("websocket upgrade error: %v", err)
+		return
+	}
+	defer uiConn.Close()
+
+	cp.Mu.RLock()
+	csmsURL := cp.Config.CentralSystemURL
+	cp.Mu.RUnlock()
+
+	csmsConnURL := fmt.Sprintf("%s/%s", csmsURL, cpID)
+	dialer := websocket.Dialer{
+		Subprotocols:    []string{"ocpp1.6"},
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	csmsConn, _, err := dialer.DialContext(r.Context(), csmsConnURL, nil)
+	if err != nil {
+		log.Printf("[%s] CSMS connect error: %v", cpID, err)
+		uiConn.WriteMessage(1, []byte(fmt.Sprintf(`[4,"","InternalError","Failed to connect to CSMS: %s",{}]`, err.Error())))
+		return
+	}
+	defer csmsConn.Close()
+
+	cp.Mu.Lock()
+	cp.Connected = true
+	cp.Config.Status = common.StatusConnected
+	cp.Mu.Unlock()
+
+	s.hub.PublishChargePointEvent(cpID, "connected")
+	log.Printf("[%s] UI WebSocket connected, proxied to CSMS", cpID)
+
+	errCh := make(chan error, 2)
+
+	go func() {
+		for {
+			_, msg, err := uiConn.ReadMessage()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if err := csmsConn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				errCh <- err
+				return
+			}
+			s.hub.PublishOCPPFrame(cpID, "outbound", msg)
+		}
+	}()
+
+	go func() {
+		for {
+			_, msg, err := csmsConn.ReadMessage()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if err := uiConn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				errCh <- err
+				return
+			}
+			s.hub.PublishOCPPFrame(cpID, "inbound", msg)
+		}
+	}()
+
+	<-errCh
+
+	cp.Mu.Lock()
+	cp.Connected = false
+	cp.Config.Status = common.StatusDisconnected
+	cp.Mu.Unlock()
+
+	s.hub.PublishChargePointEvent(cpID, "disconnected")
+	log.Printf("[%s] UI WebSocket disconnected", cpID)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -16,6 +17,7 @@ type Event struct {
 	Payload       json.RawMessage `json:"payload,omitempty"`
 	Message       string          `json:"message,omitempty"`
 	Timestamp     time.Time       `json:"timestamp"`
+	RawFrame      json.RawMessage `json:"rawFrame,omitempty"`
 }
 
 type EventHandler func(Event)
@@ -84,4 +86,27 @@ func (h *Hub) UnsubscribeChargePoint(chargePointID string, ch chan Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.subscribers[chargePointID], ch)
+}
+
+func (h *Hub) PublishChargePointEvent(chargePointID, status string) {
+	h.bus.Publish(Event{
+		ID:            fmt.Sprintf("%d", time.Now().UnixNano()),
+		Type:          "charge_point." + status,
+		ChargePointID: chargePointID,
+		Message:       fmt.Sprintf("Charge point %s", status),
+		Timestamp:     time.Now().UTC(),
+	})
+}
+
+func (h *Hub) PublishOCPPFrame(chargePointID, direction string, frame json.RawMessage) {
+	dir := direction
+	h.bus.Publish(Event{
+		ID:            fmt.Sprintf("%d", time.Now().UnixNano()),
+		Type:          "ocpp.message." + direction,
+		ChargePointID: chargePointID,
+		Direction:     &dir,
+		RawFrame:      frame,
+		Message:       fmt.Sprintf("%s OCPP frame", direction),
+		Timestamp:     time.Now().UTC(),
+	})
 }

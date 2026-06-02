@@ -344,6 +344,7 @@ func (c *OcppWebSocketClient) publishOCPPEvent(direction, action string, payload
 		Payload:       payload,
 		Message:       fmt.Sprintf("%s %s", direction, action),
 		Timestamp:     time.Now().UTC(),
+		RawFrame:      payload,
 	})
 }
 

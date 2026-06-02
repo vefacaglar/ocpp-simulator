@@ -5,73 +5,7 @@ import { useChargePointStore } from '../stores/chargePointStore'
 const store = useChargePointStore()
 
 const connectors = computed(() => store.selectedDetail?.connectors ?? [])
-const cpId = computed(() => store.selectedId)
-const connected = computed(() => store.selectedDetail?.chargePoint?.status === 'connected')
-
-async function connect() {
-  if (!cpId.value) return
-  await fetch(`/api/charge-points/${cpId.value}/connect`, { method: 'POST' })
-  await store.selectChargePoint(cpId.value)
-  await store.loadChargePoints()
-}
-
-async function disconnect() {
-  if (!cpId.value) return
-  await fetch(`/api/charge-points/${cpId.value}/disconnect`, { method: 'POST' })
-  await store.selectChargePoint(cpId.value)
-  await store.loadChargePoints()
-}
-
-async function boot() {
-  if (!cpId.value) return
-  await fetch(`/api/charge-points/${cpId.value}/boot`, { method: 'POST' })
-}
-
-async function heartbeat() {
-  if (!cpId.value) return
-  await fetch(`/api/charge-points/${cpId.value}/heartbeat`, { method: 'POST' })
-}
-
-async function startTransaction(connectorId: number) {
-  if (!cpId.value) return
-  await fetch(`/api/charge-points/${cpId.value}/connectors/${connectorId}/start-transaction`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idTag: 'DEADBEEF' }),
-  })
-  await store.selectChargePoint(cpId.value)
-}
-
-async function stopTransaction(connectorId: number) {
-  if (!cpId.value) return
-  await fetch(`/api/charge-points/${cpId.value}/connectors/${connectorId}/stop-transaction`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reason: 'Local' }),
-  })
-  await store.selectChargePoint(cpId.value)
-}
-
-async function sendMeterValues(connectorId: number) {
-  if (!cpId.value) return
-  await fetch(`/api/charge-points/${cpId.value}/connectors/${connectorId}/meter-values`, {
-    method: 'POST',
-  })
-}
-
-async function setStatus(connectorId: number, status: string) {
-  if (!cpId.value) return
-  await fetch(`/api/charge-points/${cpId.value}/connectors/${connectorId}/status`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
-  })
-  await store.selectChargePoint(cpId.value)
-}
-
-async function addConnector() {
-  await store.addConnector()
-}
+const connected = computed(() => store.selectedId ? store.isConnected(store.selectedId) : false)
 
 function statusClass(status: string) {
   return status.toLowerCase().replace(/[^a-z]/g, '')
@@ -101,17 +35,17 @@ function statusClass(status: string) {
             <h3>Connection</h3>
           </div>
           <div class="connection-actions">
-            <button v-if="!connected" class="btn-connect" @click="connect">Connect</button>
-            <button v-else class="btn-disconnect" @click="disconnect">Disconnect</button>
-            <button class="btn-action" :disabled="!connected" @click="boot">Boot</button>
-            <button class="btn-action" :disabled="!connected" @click="heartbeat">Heartbeat</button>
+            <button v-if="!connected" class="btn-connect" @click="store.connectChargePoint()">Connect</button>
+            <button v-else class="btn-disconnect" @click="store.disconnectChargePoint()">Disconnect</button>
+            <button class="btn-action" :disabled="!connected" @click="store.bootChargePoint()">Boot</button>
+            <button class="btn-action" :disabled="!connected" @click="store.heartbeatChargePoint()">Heartbeat</button>
           </div>
         </div>
 
         <div class="section">
           <div class="section-header">
             <h3>Connectors</h3>
-            <button class="btn-small" @click="addConnector">+ Add</button>
+            <button class="btn-small" @click="store.addConnector()">+ Add</button>
           </div>
           <div v-if="connectors.length === 0" class="empty-hint">No connectors.</div>
           <div v-else class="connector-list">
@@ -121,13 +55,13 @@ function statusClass(status: string) {
                 <span class="connector-status" :class="statusClass(c.status)">{{ c.status }}</span>
               </div>
               <div class="connector-actions">
-                <button v-if="c.status === 'Available' && connected" class="btn-action" @click="startTransaction(c.connectorNumber)">Start TX</button>
-                <button v-if="c.status === 'Charging'" class="btn-action btn-stop" @click="stopTransaction(c.connectorNumber)">Stop TX</button>
-                <button v-if="c.status === 'Charging'" class="btn-action" @click="sendMeterValues(c.connectorNumber)">MeterValues</button>
-                <button v-if="c.status === 'Available' && connected" class="btn-action btn-fault" @click="setStatus(c.connectorNumber, 'Faulted')">Fault</button>
-                <button v-if="c.status === 'Faulted'" class="btn-action" @click="setStatus(c.connectorNumber, 'Available')">Clear</button>
-                <button v-if="c.status === 'Available' && connected" class="btn-action" @click="setStatus(c.connectorNumber, 'Unavailable')">Disable</button>
-                <button v-if="c.status === 'Unavailable'" class="btn-action" @click="setStatus(c.connectorNumber, 'Available')">Enable</button>
+                <button v-if="c.status === 'Available' && connected" class="btn-action" @click="store.startConnectorTransaction(c.connectorNumber)">Start TX</button>
+                <button v-if="c.status === 'Charging'" class="btn-action btn-stop" @click="store.stopConnectorTransaction(c.connectorNumber)">Stop TX</button>
+                <button v-if="c.status === 'Charging'" class="btn-action" @click="store.sendConnectorMeterValues(c.connectorNumber)">MeterValues</button>
+                <button v-if="c.status === 'Available' && connected" class="btn-action btn-fault" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
+                <button v-if="c.status === 'Faulted'" class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Available')">Clear</button>
+                <button v-if="c.status === 'Available' && connected" class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Unavailable')">Disable</button>
+                <button v-if="c.status === 'Unavailable'" class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Available')">Enable</button>
               </div>
             </div>
           </div>

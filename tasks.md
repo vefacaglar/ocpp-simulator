@@ -18,7 +18,7 @@ Persistent task list so any model/contributor can see where things stand. The au
 
 ## Status overview
 
-Next available: **T18**.
+Next available: **T20**.
 
 ---
 
@@ -106,11 +106,11 @@ Next available: **T18**.
 
 ## Phase 6 — Transaction Simulation
 
-- [ ] **T18 — Transaction simulation** 🔧
+- [x] **T18 — Transaction simulation** 🔧
   Authorize, StartTransaction, StopTransaction, MeterValues. `ActiveTransactionState` with async `numeric_id` (§7.6), `ConnectorStateMachine` (§7b), `MeterValueGenerator` linear Wh model (§7b.4). Transactions persisted; connector transitions Available→Preparing→Charging→Finishing.
   _Blocked by:_ T17
 
-- [ ] **T19 — Connector control UI** 🔧
+- [x] **T19 — Connector control UI** 🔧
   `ConnectorCard.vue` with Set Status / Start / Stop / Send MeterValues / Fault (§14.5). Live status, active session, meter increasing while charging. `StartTransactionModal`.
   _Blocked by:_ T18, T11
 

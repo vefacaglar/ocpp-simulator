@@ -14,18 +14,21 @@ import (
 	"github.com/user/ocpp-simulator/apps/api/internal/realtime"
 )
 
-type OcppWebSocketClient struct {
-	cpID      string
-	url       string
-	protocol  ocpp.Protocol
-	codec     *ocpp.Codec
-	pending   *ocpp.PendingCallRegistry
-	eventBus  *realtime.EventBus
+type ResponseHandler func(cpID string, action string, msg ocpp.Message)
 
-	conn     *websocket.Conn
-	mu       sync.Mutex
+type OcppWebSocketClient struct {
+	cpID            string
+	url             string
+	protocol        ocpp.Protocol
+	codec           *ocpp.Codec
+	pending         *ocpp.PendingCallRegistry
+	eventBus        *realtime.EventBus
+	responseHandler ResponseHandler
+
+	conn      *websocket.Conn
+	mu        sync.Mutex
 	connected bool
-	cancel   context.CancelFunc
+	cancel    context.CancelFunc
 }
 
 func NewOcppWebSocketClient(cpID, url string, protocol ocpp.Protocol, eventBus *realtime.EventBus) *OcppWebSocketClient {
@@ -37,6 +40,10 @@ func NewOcppWebSocketClient(cpID, url string, protocol ocpp.Protocol, eventBus *
 		pending:  ocpp.NewPendingCallRegistry(),
 		eventBus: eventBus,
 	}
+}
+
+func (c *OcppWebSocketClient) SetResponseHandler(handler ResponseHandler) {
+	c.responseHandler = handler
 }
 
 func (c *OcppWebSocketClient) Connect(ctx context.Context) error {
@@ -190,6 +197,11 @@ func (c *OcppWebSocketClient) readLoop(ctx context.Context) {
 }
 
 func (c *OcppWebSocketClient) handleResponse(call ocpp.PendingCall, msg ocpp.Message) {
+	// Notify runtime about the response
+	if c.responseHandler != nil {
+		c.responseHandler(c.cpID, call.Action, msg)
+	}
+
 	switch call.Action {
 	case "StartTransaction":
 		resp, err := v16.ParseStartTransactionResponse(msg.Payload)
@@ -199,6 +211,8 @@ func (c *OcppWebSocketClient) handleResponse(call ocpp.PendingCall, msg ocpp.Mes
 		}
 		if resp.IDTagInfo.Status == "Accepted" {
 			log.Printf("[%s] StartTransaction accepted, transactionId=%d", c.cpID, resp.TransactionID)
+		} else {
+			log.Printf("[%s] StartTransaction rejected: %s", c.cpID, resp.IDTagInfo.Status)
 		}
 	case "BootNotification":
 		resp, err := v16.ParseBootNotificationResponse(msg.Payload)
@@ -244,7 +258,6 @@ func (c *OcppWebSocketClient) publishOCPPEvent(direction, action string, payload
 	})
 }
 
-// WireMessageLog is a callback for persisting OCPP messages to the database.
 type WireMessageLog struct {
 	ChargePointID string
 	Direction     string
@@ -253,14 +266,12 @@ type WireMessageLog struct {
 	Timestamp     time.Time
 }
 
-// IsConnected returns whether the client is currently connected.
 func (c *OcppWebSocketClient) IsConnected() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.connected
 }
 
-// Ensure OCPPVersion returns the protocol version string.
 func (c *OcppWebSocketClient) OCPPVersion() string {
 	return c.protocol.Version()
 }

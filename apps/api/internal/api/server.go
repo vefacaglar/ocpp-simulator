@@ -56,6 +56,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/charge-points/{id}/boot", s.handleBoot)
 	s.mux.HandleFunc("POST /api/charge-points/{id}/heartbeat", s.handleHeartbeat)
 
+	s.mux.HandleFunc("POST /api/charge-points/{id}/connectors/{connectorId}/start-transaction", s.handleStartTransaction)
+	s.mux.HandleFunc("POST /api/charge-points/{id}/connectors/{connectorId}/stop-transaction", s.handleStopTransaction)
+	s.mux.HandleFunc("POST /api/charge-points/{id}/connectors/{connectorId}/meter-values", s.handleMeterValues)
+	s.mux.HandleFunc("POST /api/charge-points/{id}/connectors/{connectorId}/status", s.handleSetConnectorStatus)
+
 	s.mux.HandleFunc("GET /api/realtime", s.handleRealtime)
 }
 
@@ -222,6 +227,8 @@ func (s *Server) handleAddConnector(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.runtime.AddConnector(cpID, connector)
+
 	writeJSON(w, http.StatusCreated, connector)
 }
 
@@ -263,6 +270,108 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "heartbeat_sent"})
+}
+
+type startTransactionRequest struct {
+	IDTag string `json:"idTag"`
+}
+
+func (s *Server) handleStartTransaction(w http.ResponseWriter, r *http.Request) {
+	cpID := r.PathValue("id")
+	connectorID := r.PathValue("connectorId")
+
+	var req startTransactionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.IDTag == "" {
+		req.IDTag = "DEADBEEF"
+	}
+
+	connID := parseIntOr(connectorID, 1)
+	if err := s.runtime.StartTransaction(cpID, connID, req.IDTag); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "transaction_started"})
+}
+
+type stopTransactionRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (s *Server) handleStopTransaction(w http.ResponseWriter, r *http.Request) {
+	cpID := r.PathValue("id")
+	connectorID := r.PathValue("connectorId")
+
+	var req stopTransactionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req.Reason = "Local"
+	}
+	if req.Reason == "" {
+		req.Reason = "Local"
+	}
+
+	connID := parseIntOr(connectorID, 1)
+	if err := s.runtime.StopTransaction(cpID, connID, req.Reason); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "transaction_stopped"})
+}
+
+func (s *Server) handleMeterValues(w http.ResponseWriter, r *http.Request) {
+	cpID := r.PathValue("id")
+	connectorID := r.PathValue("connectorId")
+
+	connID := parseIntOr(connectorID, 1)
+	if err := s.runtime.SendMeterValues(cpID, connID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "meter_values_sent"})
+}
+
+type setConnectorStatusRequest struct {
+	Status string `json:"status"`
+}
+
+func (s *Server) handleSetConnectorStatus(w http.ResponseWriter, r *http.Request) {
+	cpID := r.PathValue("id")
+	connectorID := r.PathValue("connectorId")
+
+	var req setConnectorStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Status == "" {
+		writeError(w, http.StatusBadRequest, "status is required")
+		return
+	}
+
+	connID := parseIntOr(connectorID, 1)
+	if err := s.runtime.SetConnectorStatus(cpID, connID, common.ConnectorStatus(req.Status)); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "connector_status_set"})
+}
+
+func parseIntOr(s string, defaultVal int) int {
+	var n int
+	for _, c := range s {
+		if c >= '0' && c <= '9' {
+			n = n*10 + int(c-'0')
+		} else {
+			return defaultVal
+		}
+	}
+	if n == 0 {
+		return defaultVal
+	}
+	return n
 }
 
 func (s *Server) handleRealtime(w http.ResponseWriter, r *http.Request) {

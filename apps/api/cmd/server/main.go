@@ -32,7 +32,11 @@ func main() {
 	factory := ocpp.NewFactory()
 	factory.Register(v16.NewProtocol())
 
-	runtime := simulator.NewRuntime(eventBus, factory)
+	txRepo := db.NewTransactionRepo(database)
+	msgRepo := db.NewMessageLogRepo(database)
+	connRepo := db.NewConnectorRepo(database)
+
+	runtime := simulator.NewRuntime(eventBus, factory, txRepo, msgRepo, connRepo)
 	server := api.NewServer(database, runtime, hub)
 
 	addr := ":" + cfg.Port

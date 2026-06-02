@@ -43,6 +43,26 @@ The tool should answer these questions clearly:
 
 ---
 
+## 2b. Strict OCPP Standard Compliance (Hard Requirement)
+
+This is a non-negotiable constraint that overrides convenience everywhere it conflicts.
+
+**Everything that goes on the wire MUST conform exactly to the official OCPP specification for the negotiated version. No custom, simplified, or invented models, fields, casing, or value sets are ever allowed in communication with a Central System.**
+
+Concretely:
+
+- **Wire payloads are spec-exact.** Field names, JSON casing (e.g. `chargePointVendor`, `idTagInfo`, `meterStart`), data types, required/optional fields, value ranges, and enum strings must match the OCPP schema for that version (OCPP 1.6J JSON, OCPP 2.0.1 JSON) precisely — character for character.
+- **Message framing is spec-exact.** The OCPP-J wire format `[MessageTypeId, UniqueId, Action, Payload]` for CALL, `[MessageTypeId, UniqueId, Payload]` for CALLRESULT, and `[MessageTypeId, UniqueId, ErrorCode, ErrorDescription, ErrorDetails]` for CALLERROR must be followed exactly, including the standard `ErrorCode` value set.
+- **Enums and statuses are spec values only.** Connector status, `idTagInfo.status`, `BootNotification` status, stop reasons, measurands, units, etc. must use the literal strings defined by the spec — never paraphrased or localized.
+- **The WebSocket subprotocol is the standard one** (`ocpp1.6`, `ocpp2.0.1`).
+- **Internal models never leak to the wire.** The generic internal domain model (the transaction GUID, `numericId`, dual identity, `ConnectorStateMachine` names, runtime events, etc.) exists only inside the simulator. The version `codec` is the single boundary that translates internal state into spec-exact wire payloads and back. If a value isn't defined by the OCPP spec, it must not appear in an OCPP message.
+- **Validation against the official JSON schemas.** Where the spec publishes JSON schemas, outgoing and incoming payloads should be validatable against them. Anything that fails schema validation is a bug, not an acceptable simplification.
+- **Applies to the mock Central System too.** `apps/csms` (section 10b) must also emit only spec-exact responses, even though it is a test server. It may choose *which* valid response to send, but every response must itself be valid OCPP.
+
+Where this plan shows a simplified or partial payload for brevity, the implementation must still produce the full spec-compliant message. The plan's illustrative snippets are never an excuse to deviate from the standard.
+
+---
+
 ## 3. Target Users
 
 Primary users:
@@ -130,11 +150,13 @@ ocpp-simulator/
 │  └─ csms/             # Go mock OCPP Central System (test server)
 │
 ├─ packages/
+│  ├─ ocpp-schemas/     # Go module: official OCPP JSON schemas (single source of truth) + embed + validator
 │  ├─ shared/           # Generated TypeScript API client or shared types
 │  └─ config/           # Shared frontend config if needed
 │
 ├─ docs/
 ├─ docker/
+├─ go.work              # Go workspace linking apps/api, apps/csms, packages/ocpp-schemas
 ├─ turbo.json
 ├─ package.json
 ├─ pnpm-workspace.yaml
@@ -332,24 +354,29 @@ Before stopping a transaction:
 - Connector must have an active transaction.
 - StopTransaction should include transaction ID, meter stop value, timestamp, and reason.
 
-### 7.6 Asynchronous Transaction ID Assignment (OCPP 1.6J)
+### 7.6 Asynchronous Transaction ID Assignment
 
-In OCPP 1.6J the `transactionId` is **not** known when the simulator starts a transaction. It is assigned by the Central System and returned in `StartTransaction.conf`. The runtime must therefore model transaction start as a two-step asynchronous flow:
+The simulator always generates its own transaction GUID (`transactions.id`) up front. The version-specific wire identifier behaves differently:
+
+- **OCPP 1.6J**: the wire `transactionId` (integer, `numeric_id`) is **not** known at start. It is assigned by the Central System and returned in `StartTransaction.conf`.
+- **OCPP 2.0.1**: the wire `transactionId` is a string, so the simulator can use its own GUID immediately — no async assignment needed.
+
+The 1.6J start flow is therefore two-step asynchronous:
 
 1. User triggers Start Transaction on a connector.
 2. Runtime validates state (see 7.5) and moves the connector to a pending state.
-3. Runtime sends `StartTransaction.req` and records a pending call (see 10.3).
-4. `ActiveTransactionState` is created in a `pending_start` status with no `transactionId` yet.
+3. Runtime creates the `transactions` row in `pending_start` status: `id` (GUID) is set, `numeric_id` is NULL.
+4. Runtime sends `StartTransaction.req` and records a pending call (see 10.3). `ActiveTransactionState` references the GUID and carries a not-yet-assigned `numeric_id`.
 5. When `StartTransaction.conf` arrives:
    - Match by unique ID.
    - Read `transactionId` and `idTagInfo.status`.
-   - If `Accepted`, fill `transactionId`, move connector to `Charging`, start the meter value loop, persist the session row, and publish `transaction.started`.
-   - If rejected (`Blocked`, `Expired`, `Invalid`, `ConcurrentTx`), abort the pending transaction, revert connector status, and publish `transaction.failed`.
-6. If the `StartTransaction.conf` times out, abort the pending transaction, revert connector status, and publish `transaction.failed` + `ocpp.response_timeout`.
+   - If `Accepted`, fill `numeric_id`, move connector to `Charging`, start the meter value loop, set the transaction to `active`, and publish `transaction.started`.
+   - If rejected (`Blocked`, `Expired`, `Invalid`, `ConcurrentTx`), set the transaction to `failed`, revert connector status, and publish `transaction.failed`.
+6. If the `StartTransaction.conf` times out, set the transaction to `failed`, revert connector status, and publish `transaction.failed` + `ocpp.response_timeout`.
 
-`StopTransaction` is simpler because the `transactionId` is already known locally, but its `.conf` should still be correlated and may update the session row's final state.
+`StopTransaction` is simpler because the identifier is already known locally (`numeric_id` for 1.6J, `id` for 2.0.1), but its `.conf` should still be correlated and may update the transaction's final state.
 
-Implication for state design: `ActiveTransactionState` must support a `transactionId` that is initially nil/zero and is populated asynchronously. UI must tolerate a short window where a connector is "starting" but has no transaction ID yet.
+Implication for state design: `ActiveTransactionState` always has a GUID, but its `numeric_id` is initially nil and populated asynchronously for 1.6J. UI must tolerate a short window where a connector is "starting" but has no numeric transaction ID yet.
 
 ---
 
@@ -511,6 +538,72 @@ Charge Point > Connectors
 ```
 
 But internally, leave room for OCPP 2.0.1 concepts such as EVSE, device model, and TransactionEvent.
+
+### 8.4 Transaction Identity Across Versions
+
+The two OCPP versions identify transactions differently on the wire:
+
+- **OCPP 1.6J** — `transactionId` is an **integer**, assigned by the Central System.
+- **OCPP 2.0.1** — `transactionId` is a **string** (≤36 chars, typically a UUID), chosen by the charge point.
+
+To keep the runtime and persistence version-agnostic, the simulator stores a **dual identity** in the `transactions` table (section 13):
+
+- `id` — an internal GUID, always generated by the simulator. Doubles as the 2.0.1 wire `transactionId`.
+- `numeric_id` — the 1.6J integer wire `transactionId` (NULL until assigned).
+
+Each protocol's `codec` is responsible for reading the correct field off the wire and mapping it onto this dual identity. The runtime always refers to a transaction by its GUID internally; only the version codec cares which wire form is used.
+
+### 8.5 Official OCPP JSON Schemas & Validation
+
+To enforce strict compliance (section 2b), the official OCPP JSON schemas are stored as the single source of truth in a dedicated Go module, separate from the simulator and protocol logic.
+
+#### 8.5.1 Schema Storage
+
+```txt
+packages/ocpp-schemas/
+├─ v16/
+│  ├─ BootNotification.json
+│  ├─ BootNotificationResponse.json
+│  ├─ Heartbeat.json
+│  ├─ HeartbeatResponse.json
+│  ├─ StatusNotification.json
+│  ├─ StatusNotificationResponse.json
+│  ├─ Authorize.json
+│  ├─ AuthorizeResponse.json
+│  ├─ StartTransaction.json
+│  ├─ StartTransactionResponse.json
+│  ├─ MeterValues.json
+│  ├─ MeterValuesResponse.json
+│  ├─ StopTransaction.json
+│  └─ StopTransactionResponse.json
+│
+├─ v201/                # placeholder for OCPP 2.0.1 schemas (added when 2.0.1 work starts)
+│
+├─ embed.go            # //go:embed v16/*.json v201/*.json
+├─ validator.go        # Validate(version, action, direction, payload) error
+├─ validator_test.go
+├─ README.md           # provenance: source URL, spec version, license, retrieval date
+└─ go.mod
+```
+
+Rules:
+
+- These are the **unmodified, official** schema files. They must not be hand-edited to fit our code; our code conforms to them.
+- `README.md` records exactly where each schema came from and which spec revision, so they can be re-verified/updated.
+- The package embeds the JSON via `//go:embed` and exposes a single validation entry point:
+
+```go
+// Validate checks a payload against the official OCPP schema for the given
+// version, action, and direction (request vs. response).
+func Validate(version Version, action string, dir Direction, payload []byte) error
+```
+
+#### 8.5.2 How Validation Is Wired
+
+- `apps/api` and `apps/csms` both depend on `packages/ocpp-schemas` through the `go.work` workspace.
+- **Tests**: every built/decoded message is validated against the official schema (see Phase 4 tests). This is the primary guarantee.
+- **Runtime (optional, dev-mode)**: a build/config flag can enable outbound payload validation before send and inbound validation after receive; on failure it publishes a `runtime.error` and refuses to send. Off by default in normal runs to avoid overhead, but available to catch regressions.
+- The `codec` is the only place that produces wire bytes, so it is the only place that needs validating.
 
 ---
 
@@ -679,6 +772,8 @@ StopTransaction     -> { "idTagInfo": { "status": "Accepted" } }
 The server assigns `transactionId` from a simple in-memory incrementing counter. This is what closes the loop with the simulator's asynchronous transaction-ID flow (section 7.6).
 
 Unknown / unsupported actions reply with a CALLERROR (`NotImplemented` / `NotSupported`) rather than crashing.
+
+Every response the mock emits must be valid OCPP (section 2b). The mock depends on `packages/ocpp-schemas` and its tests validate each response against the official `...Response.json` schema (section 8.5).
 
 ### 10b.5 Minimal Structure
 
@@ -933,25 +1028,39 @@ UNIQUE(charge_point_id, connector_number)
 
 > `evse_id` is always `1` in OCPP 1.6J (flat connector model). It is reserved now so OCPP 2.0.1's EVSE → Connector hierarchy can be represented without a breaking migration later. The MVP UI ignores it.
 
-#### charging_sessions
+#### transactions
+
+A transaction is one StartTransaction → StopTransaction charge cycle. It carries a **dual identity** so the same table serves both OCPP versions:
 
 ```txt
-id                  TEXT PRIMARY KEY
+id                  TEXT PRIMARY KEY        -- internal GUID, generated on start; also the OCPP 2.0.1 transactionId (string, <=36 chars)
+numeric_id          INTEGER NULL            -- OCPP 1.6J transactionId, assigned by the Central System in StartTransaction.conf
 charge_point_id     TEXT NOT NULL
+evse_id             INTEGER NOT NULL DEFAULT 1
 connector_number    INTEGER NOT NULL
-transaction_id      INTEGER NULL
 id_tag              TEXT NOT NULL
+ocpp_version        TEXT NOT NULL
 status              TEXT NOT NULL
-started_at          TEXT NOT NULL
+started_at          TEXT NULL
 stopped_at          TEXT NULL
-start_meter_wh      INTEGER NOT NULL
+start_meter_wh      INTEGER NOT NULL DEFAULT 0
 stop_meter_wh       INTEGER NULL
 stop_reason         TEXT NULL
 created_at          TEXT NOT NULL
 updated_at          TEXT NOT NULL
+
+UNIQUE(charge_point_id, numeric_id)
 ```
 
-> `status` reflects the async lifecycle from section 7.6: `pending_start` → `active` → `stopping` → `stopped`, plus terminal `failed`. `transaction_id` stays NULL while `pending_start` and is filled once `StartTransaction.conf` is accepted.
+Identity rules:
+
+- `id` (GUID) is generated by the simulator the moment a transaction starts and is **always present**. It is the stable internal key and doubles as the wire-level `transactionId` for OCPP 2.0.1 (a string).
+- `numeric_id` is the OCPP 1.6J wire-level `transactionId`. It is NULL until `StartTransaction.conf` assigns it (section 7.6).
+- The runtime/API returns **both**: `{ "id": "<guid>", "numericId": <int|null> }`. On the wire, 1.6J uses `numericId`, 2.0.1 uses `id`. One table, both versions.
+
+`status` reflects the async lifecycle from section 7.6: `pending_start` → `active` → `stopping` → `stopped`, plus terminal `failed`. `numeric_id` stays NULL while `pending_start` (1.6J) and is filled once `StartTransaction.conf` is accepted.
+
+> The UI's "sessions" view (section 12.5 `/api/sessions`, the `sessionStore`) is a read-friendly projection over this table — "session" is just the user-facing name for a charge transaction. There is no separate sessions table.
 
 #### ocpp_message_logs
 
@@ -959,8 +1068,8 @@ updated_at          TEXT NOT NULL
 id                  TEXT PRIMARY KEY
 charge_point_id     TEXT NOT NULL
 connector_number    INTEGER NULL
-session_id          TEXT NULL
-transaction_id      INTEGER NULL
+transaction_uuid    TEXT NULL
+transaction_numeric_id INTEGER NULL
 unique_id           TEXT NULL
 message_type        TEXT NOT NULL
 message_type_id     INTEGER NULL
@@ -974,7 +1083,7 @@ error_description   TEXT NULL
 created_at          TEXT NOT NULL
 ```
 
-> `session_id` / `transaction_id` link a protocol message to its session so the UI can answer "which transaction does this message belong to". Both are NULL for non-transactional messages (BootNotification, Heartbeat). For the initial `StartTransaction.req`, `session_id` is set but `transaction_id` is NULL until the `.conf` correlates it (section 7.6).
+> `transaction_uuid` (FK to `transactions.id`) / `transaction_numeric_id` link a protocol message to its transaction so the UI can answer "which transaction does this message belong to". Both are NULL for non-transactional messages (BootNotification, Heartbeat). For the initial `StartTransaction.req`, `transaction_uuid` is set but `transaction_numeric_id` is NULL until the `.conf` correlates it (section 7.6).
 
 #### runtime_events
 
@@ -1261,6 +1370,8 @@ Deliverables:
 - apps/api Go service
 - apps/web Vue app
 - apps/csms Go mock Central System skeleton (accepts a WebSocket connection, logs frames)
+- `go.work` workspace linking apps/api, apps/csms, packages/ocpp-schemas
+- packages/ocpp-schemas module scaffold (empty validator + README placeholder; schema files land in Phase 4)
 - root dev scripts
 - basic README
 - basic Docker ignore files
@@ -1272,6 +1383,7 @@ Acceptance criteria:
 - API exposes health endpoint
 - Web app loads dashboard shell
 - `pnpm dev:csms` starts the mock Central System and accepts a raw WebSocket connection
+- `go build ./...` works across the workspace
 
 ### Phase 1: SQLite and Basic CRUD
 
@@ -1330,20 +1442,58 @@ Acceptance criteria:
 
 Deliverables:
 
+- `packages/ocpp-schemas` module: official OCPP 1.6J JSON schemas (all 7 MVP actions, request + response), `//go:embed`, and `Validate(version, action, direction, payload)` (section 8.5)
 - OCPP core message model
 - Protocol interface
 - OCPP 1.6J implementation
 - Encode/decode support for CALL, CALLRESULT, CALLERROR
 - Unique ID generation
 - Pending call tracking
+- Test suite (see below)
+
+#### Phase 4 Tests (concrete)
+
+All tests are standard Go `testing` table-driven tests; they are the primary enforcement of section 2b.
+
+1. **Schema validator tests** (`packages/ocpp-schemas/validator_test.go`)
+   - A known-good payload for each action passes `Validate`.
+   - A payload with a wrong-cased field (e.g. `ChargePointVendor` instead of `chargePointVendor`) fails.
+   - A payload missing a required field fails.
+   - A payload with an out-of-spec enum value (e.g. connector status `"Busy"`) fails.
+   - An unknown action returns a clear error rather than passing.
+
+2. **Build → schema validation tests** (per action: BootNotification, Heartbeat, StatusNotification, Authorize, StartTransaction, MeterValues, StopTransaction)
+   - For each `BuildX(input)`, encode the payload and assert it passes `Validate(v16, action, Request, payload)`.
+   - Assert field names/casing/types exactly match the schema (the schema check covers this).
+
+3. **CALL framing tests**
+   - Encoding produces a 4-element array `[2, uniqueId, action, payload]` with `MessageTypeId == 2`.
+   - `uniqueId` is non-empty and unique across N generations.
+
+4. **Decode tests**
+   - A valid CALLRESULT `[3, uniqueId, payload]` decodes and the response payload validates against `...Response.json`.
+   - A valid CALLERROR `[4, uniqueId, errorCode, errorDescription, errorDetails]` decodes; `errorCode` is one of the standard OCPP error codes.
+   - Malformed frames (wrong arity, non-integer MessageTypeId, bad JSON) return a decode error, never panic.
+
+5. **Round-trip tests**
+   - `decode(encode(msg)) == msg` for CALL, CALLRESULT, CALLERROR.
+
+6. **Correlation tests**
+   - A response is matched to its pending call by `uniqueId`.
+   - An unmatched/unknown `uniqueId` is handled gracefully (logged, no panic).
+   - StartTransaction.conf populates `numeric_id` per section 7.6.
+
+7. **Golden fixtures**
+   - Keep `testdata/*.json` golden examples of each full wire frame; tests assert exact byte/JSON equality so accidental shape changes are caught in review.
 
 Acceptance criteria:
 
-- BootNotification can be encoded as valid OCPP 1.6J JSON array
-- Heartbeat can be encoded
-- StatusNotification can be encoded
-- Responses can be matched by unique ID
-- Sent and received messages are logged
+- All 7 MVP actions build payloads that pass official-schema validation.
+- CALL / CALLRESULT / CALLERROR encode and decode correctly and round-trip.
+- Responses are matched by unique ID; StartTransaction.conf assigns `numeric_id`.
+- Sent and received messages are logged.
+- `go test ./...` passes for `apps/api` and `packages/ocpp-schemas`, including all tests above.
+- A deliberately malformed or non-spec payload is rejected by the validator in tests (proves the guard works).
 
 ### Phase 5: OCPP WebSocket Client
 
@@ -1356,11 +1506,13 @@ Deliverables:
 - Timeout handling
 - Message persistence
 - Realtime event publishing
+- Mock CSMS handlers + tests asserting every response validates against the official `...Response.json` schema (section 8.5)
 
 Note: the mock Central System (`apps/csms`, section 10b) should now return real happy-path responses, so the simulator can be tested end-to-end without any external backend.
 
 Acceptance criteria:
 
+- `go test ./...` passes for `apps/csms`; every mock response validates against its official OCPP response schema
 - Charge point connects to the mock Central System URL
 - BootNotification is sent after command and the mock replies `Accepted`
 - Response is received and shown in UI
@@ -1574,6 +1726,7 @@ After MVP:
 
 When using an LLM agent to implement this project, follow these rules:
 
+0. **Strict OCPP compliance is mandatory (see section 2b).** Every byte sent to or accepted from a Central System must conform exactly to the official OCPP spec for the negotiated version. Never invent, rename, simplify, or localize wire fields, enums, casing, or message framing. Internal models stay internal; only the version codec touches the wire. When in doubt, match the official OCPP JSON schema.
 1. Do not implement the full EVCMS domain.
 2. Keep the project focused on simulation.
 3. Keep runtime state and persistence clearly separated.

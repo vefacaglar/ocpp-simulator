@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:ocpp:1.6:1.6:UnlockConnectorResponse",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["Unlocked", "UnlockFailed", "NotSupported"]
+    }
+  },
+  "required": ["status"],
+  "additionalProperties": false
+}

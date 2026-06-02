@@ -94,6 +94,7 @@ func (r *Runtime) Connect(id string) error {
 
 	client := NewOcppWebSocketClient(id, cp.Config.CentralSystemURL, protocol, r.eventBus)
 	client.SetResponseHandler(r.handleOCPPResponse)
+	client.SetInboundHandler(NewInboundCallHandler(r, r.factory))
 
 	cp.Mu.Lock()
 	cp.Client = client
@@ -569,6 +570,424 @@ func (r *Runtime) handleOCPPResponse(cpID string, action string, msg ocpp.Messag
 	case "StartTransaction":
 		r.HandleStartTransactionResponse(cpID, msg)
 	}
+}
+
+// HandleRemoteStartTransaction processes a CSMS-initiated RemoteStartTransaction command.
+func (r *Runtime) HandleRemoteStartTransaction(cpID string, req *ocpp.RemoteStartTransactionRequest) (string, error) {
+	r.mu.RLock()
+	cp, ok := r.chargePoints[cpID]
+	r.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("charge point %s not found", cpID)
+	}
+
+	cp.Mu.Lock()
+	client := cp.Client
+	connected := cp.Connected
+	cp.Mu.Unlock()
+
+	if !connected || client == nil {
+		return "", fmt.Errorf("charge point %s not connected", cpID)
+	}
+
+	// Determine target connector
+	connectorID := 0
+	if req.ConnectorID != nil {
+		connectorID = *req.ConnectorID
+	}
+
+	cp.Mu.Lock()
+	defer cp.Mu.Unlock()
+
+	if connectorID == 0 {
+		// Pick first available connector
+		for id, cr := range cp.Connectors {
+			if cr.StateMachine.Current() == StateAvailable {
+				connectorID = id
+				break
+			}
+		}
+		if connectorID == 0 {
+			return "Rejected", nil
+		}
+	}
+
+	cr, exists := cp.Connectors[connectorID]
+	if !exists {
+		return "Rejected", nil
+	}
+
+	// Check connector is in a state that allows starting
+	if !cr.StateMachine.CanTransitionTo(StatePreparing) {
+		return "Rejected", nil
+	}
+
+	// Check no active transaction
+	if cr.TransactionID != "" {
+		return "Rejected", nil
+	}
+
+	// Transition to Preparing
+	if err := cr.StateMachine.Transition(StatePreparing); err != nil {
+		return "Rejected", nil
+	}
+
+	r.publishEvent("remote.start_transaction.accepted", cpID, &connectorID,
+		fmt.Sprintf("RemoteStartTransaction accepted for connector %d, idTag=%s", connectorID, req.IDTag))
+
+	// Trigger async StartTransaction flow
+	go func() {
+		if err := r.StartTransaction(cpID, connectorID, req.IDTag); err != nil {
+			log.Printf("[%s] async StartTransaction after RemoteStartTransaction failed: %v", cpID, err)
+			r.publishEvent("transaction.failed", cpID, &connectorID,
+				fmt.Sprintf("StartTransaction after RemoteStartTransaction failed: %v", err))
+		}
+	}()
+
+	return "Accepted", nil
+}
+
+// HandleRemoteStopTransaction processes a CSMS-initiated RemoteStopTransaction command.
+func (r *Runtime) HandleRemoteStopTransaction(cpID string, req *ocpp.RemoteStopTransactionRequest) (string, error) {
+	r.mu.RLock()
+	cp, ok := r.chargePoints[cpID]
+	r.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("charge point %s not found", cpID)
+	}
+
+	cp.Mu.Lock()
+	client := cp.Client
+	connected := cp.Connected
+	cp.Mu.Unlock()
+
+	if !connected || client == nil {
+		return "", fmt.Errorf("charge point %s not connected", cpID)
+	}
+
+	// Find connector with matching active transaction
+	cp.Mu.RLock()
+	var targetConnector int
+	var targetCR *ConnectorRuntime
+	for id, cr := range cp.Connectors {
+		if cr.TransactionID != "" {
+			// Check if this transaction matches the requested numeric ID
+			tx, err := r.transactionRepo.GetByID(context.Background(), cr.TransactionID)
+			if err == nil && tx.NumericID != nil && *tx.NumericID == req.TransactionID {
+				targetConnector = id
+				targetCR = cr
+				break
+			}
+		}
+	}
+	cp.Mu.RUnlock()
+
+	if targetCR == nil {
+		return "Rejected", nil
+	}
+
+	r.publishEvent("remote.stop_transaction.accepted", cpID, &targetConnector,
+		fmt.Sprintf("RemoteStopTransaction accepted for connector %d, transactionId=%d", targetConnector, req.TransactionID))
+
+	// Trigger async StopTransaction flow
+	go func() {
+		if err := r.StopTransaction(cpID, targetConnector, "Remote"); err != nil {
+			log.Printf("[%s] async StopTransaction after RemoteStopTransaction failed: %v", cpID, err)
+			r.publishEvent("transaction.failed", cpID, &targetConnector,
+				fmt.Sprintf("StopTransaction after RemoteStopTransaction failed: %v", err))
+		}
+	}()
+
+	return "Accepted", nil
+}
+
+// HandleReset processes a CSMS-initiated Reset command.
+func (r *Runtime) HandleReset(cpID string, req *ocpp.ResetRequest) (string, error) {
+	r.mu.RLock()
+	cp, ok := r.chargePoints[cpID]
+	r.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("charge point %s not found", cpID)
+	}
+
+	cp.Mu.RLock()
+	connected := cp.Connected
+	client := cp.Client
+	cp.Mu.RUnlock()
+
+	if !connected || client == nil {
+		return "", fmt.Errorf("charge point %s not connected", cpID)
+	}
+
+	r.publishEvent("remote.reset", cpID, nil,
+		fmt.Sprintf("Reset (%s) accepted", req.Type))
+
+	if req.Type == "Hard" {
+		// Hard reset: disconnect and reconnect
+		go func() {
+			r.Disconnect(cpID)
+			time.Sleep(2 * time.Second)
+			if err := r.Connect(cpID); err != nil {
+				log.Printf("[%s] reconnect after Hard reset failed: %v", cpID, err)
+			}
+		}()
+	}
+	// Soft reset: no immediate action needed in simulator context
+
+	return "Accepted", nil
+}
+
+// HandleUnlockConnector processes a CSMS-initiated UnlockConnector command.
+func (r *Runtime) HandleUnlockConnector(cpID string, connectorID int) (string, error) {
+	r.mu.RLock()
+	cp, ok := r.chargePoints[cpID]
+	r.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("charge point %s not found", cpID)
+	}
+
+	cp.Mu.Lock()
+	cr, exists := cp.Connectors[connectorID]
+	if !exists {
+		cp.Mu.Unlock()
+		return "UnlockFailed", nil
+	}
+
+	// If there's an active transaction, stop it first
+	hasActive := cr.TransactionID != ""
+	cp.Mu.Unlock()
+
+	if hasActive {
+		if err := r.StopTransaction(cpID, connectorID, "UnlockCommand"); err != nil {
+			log.Printf("[%s] StopTransaction during UnlockConnector failed: %v", cpID, err)
+		}
+	}
+
+	// Transition to Available
+	cp.Mu.Lock()
+	if err := cr.StateMachine.Transition(StateAvailable); err != nil {
+		cp.Mu.Unlock()
+		return "UnlockFailed", nil
+	}
+	cp.Mu.Unlock()
+
+	r.publishEvent("remote.unlock_connector", cpID, &connectorID,
+		fmt.Sprintf("Connector %d unlocked", connectorID))
+
+	return "Unlocked", nil
+}
+
+// HandleChangeConfiguration processes a CSMS-initiated ChangeConfiguration command.
+func (r *Runtime) HandleChangeConfiguration(cpID string, key, value string) (string, error) {
+	r.mu.RLock()
+	cp, ok := r.chargePoints[cpID]
+	r.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("charge point %s not found", cpID)
+	}
+
+	cp.Mu.RLock()
+	connected := cp.Connected
+	cp.Mu.RUnlock()
+
+	if !connected {
+		return "", fmt.Errorf("charge point %s not connected", cpID)
+	}
+
+	// Simulate known configuration keys
+	knownKeys := map[string]bool{
+		"HeartbeatInterval":            true,
+		"MeterValueSampleInterval":     true,
+		"ClockAlignedDataInterval":     true,
+		"NumberOfConnectors":           true,
+		"ConnectionTimeOut":            true,
+		"WebSocketPingInterval":        true,
+		"LocalPreAuthorize":            true,
+		"StopTransactionOnEVSideDisconnect": true,
+	}
+
+	if _, known := knownKeys[key]; !known {
+		return "NotSupported", nil
+	}
+
+	r.publishEvent("remote.change_configuration", cpID, nil,
+		fmt.Sprintf("Configuration changed: %s=%s", key, value))
+
+	return "Accepted", nil
+}
+
+// HandleGetConfiguration processes a CSMS-initiated GetConfiguration command.
+func (r *Runtime) HandleGetConfiguration(cpID string, keys []string) ([]ocpp.ConfigurationKey, []string, error) {
+	r.mu.RLock()
+	cp, ok := r.chargePoints[cpID]
+	r.mu.RUnlock()
+	if !ok {
+		return nil, nil, fmt.Errorf("charge point %s not found", cpID)
+	}
+
+	cp.Mu.RLock()
+	connected := cp.Connected
+	cp.Mu.RUnlock()
+
+	if !connected {
+		return nil, nil, fmt.Errorf("charge point %s not connected", cpID)
+	}
+
+	// Simulated configuration store
+	defaultConfig := map[string]string{
+		"HeartbeatInterval":            "300",
+		"MeterValueSampleInterval":     "60",
+		"ClockAlignedDataInterval":     "0",
+		"NumberOfConnectors":           fmt.Sprintf("%d", len(cp.Connectors)),
+		"ConnectionTimeOut":            "60",
+		"WebSocketPingInterval":        "0",
+		"LocalPreAuthorize":            "false",
+		"StopTransactionOnEVSideDisconnect": "true",
+	}
+
+	if len(keys) == 0 {
+		// Return all keys
+		var configKeys []ocpp.ConfigurationKey
+		for k, v := range defaultConfig {
+			val := v
+			configKeys = append(configKeys, ocpp.ConfigurationKey{
+				Key:      k,
+				Readonly: false,
+				Value:    &val,
+			})
+		}
+		return configKeys, nil, nil
+	}
+
+	var configKeys []ocpp.ConfigurationKey
+	var unknownKeys []string
+
+	for _, k := range keys {
+		if v, ok := defaultConfig[k]; ok {
+			val := v
+			configKeys = append(configKeys, ocpp.ConfigurationKey{
+				Key:      k,
+				Readonly: false,
+				Value:    &val,
+			})
+		} else {
+			unknownKeys = append(unknownKeys, k)
+		}
+	}
+
+	return configKeys, unknownKeys, nil
+}
+
+// HandleTriggerMessage processes a CSMS-initiated TriggerMessage command.
+func (r *Runtime) HandleTriggerMessage(cpID string, requestedMessage string, connectorID *int) (string, error) {
+	r.mu.RLock()
+	cp, ok := r.chargePoints[cpID]
+	r.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("charge point %s not found", cpID)
+	}
+
+	cp.Mu.RLock()
+	client := cp.Client
+	connected := cp.Connected
+	cp.Mu.RUnlock()
+
+	if !connected || client == nil {
+		return "", fmt.Errorf("charge point %s not connected", cpID)
+	}
+
+	r.publishEvent("remote.trigger_message", cpID, nil,
+		fmt.Sprintf("TriggerMessage: %s", requestedMessage))
+
+	// Trigger the requested message asynchronously
+	go func() {
+		ctx := context.Background()
+		var err error
+		switch requestedMessage {
+		case "BootNotification":
+			err = r.SendBootNotification(cpID)
+		case "Heartbeat":
+			err = r.SendHeartbeat(cpID)
+		case "StatusNotification":
+			if connectorID != nil {
+				cp.Mu.RLock()
+				cr, exists := cp.Connectors[*connectorID]
+				if exists {
+					status := string(cr.StateMachine.Current())
+					cp.Mu.RUnlock()
+					err = client.SendStatusNotification(ctx, *connectorID, status, "NoError")
+				} else {
+					cp.Mu.RUnlock()
+				}
+			}
+		case "MeterValues":
+			if connectorID != nil {
+				err = r.SendMeterValues(cpID, *connectorID)
+			}
+		default:
+			// DiagnosticsStatusNotification, FirmwareStatusNotification not supported
+			log.Printf("[%s] unsupported TriggerMessage: %s", cpID, requestedMessage)
+		}
+		if err != nil {
+			log.Printf("[%s] TriggerMessage %s failed: %v", cpID, requestedMessage, err)
+		}
+	}()
+
+	return "Accepted", nil
+}
+
+// HandleChangeAvailability processes a CSMS-initiated ChangeAvailability command.
+func (r *Runtime) HandleChangeAvailability(cpID string, connectorID int, availType string) (string, error) {
+	r.mu.RLock()
+	cp, ok := r.chargePoints[cpID]
+	r.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("charge point %s not found", cpID)
+	}
+
+	cp.Mu.Lock()
+	defer cp.Mu.Unlock()
+
+	// connectorId=0 means whole station
+	if connectorID == 0 {
+		targetState := StateAvailable
+		if availType == "Inoperative" {
+			targetState = StateUnavailable
+		}
+		for _, cr := range cp.Connectors {
+			if err := cr.StateMachine.Transition(targetState); err != nil {
+				// If there's an active transaction, schedule the change
+				if cr.TransactionID != "" && availType == "Inoperative" {
+					return "Scheduled", nil
+				}
+			}
+		}
+		r.publishEvent("remote.change_availability", cpID, nil,
+			fmt.Sprintf("Station availability changed to %s", availType))
+		return "Accepted", nil
+	}
+
+	cr, exists := cp.Connectors[connectorID]
+	if !exists {
+		return "Rejected", nil
+	}
+
+	targetState := StateAvailable
+	if availType == "Inoperative" {
+		targetState = StateUnavailable
+	}
+
+	if err := cr.StateMachine.Transition(targetState); err != nil {
+		// If there's an active transaction, schedule the change
+		if cr.TransactionID != "" && availType == "Inoperative" {
+			return "Scheduled", nil
+		}
+		return "Rejected", nil
+	}
+
+	r.publishEvent("remote.change_availability", cpID, &connectorID,
+		fmt.Sprintf("Connector %d availability changed to %s", connectorID, availType))
+	return "Accepted", nil
 }
 
 // WireMessageLog persists an OCPP message to the database.

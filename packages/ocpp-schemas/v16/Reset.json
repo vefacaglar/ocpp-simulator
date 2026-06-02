@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:ocpp:1.6:1.6:ResetRequest",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["Hard", "Soft"]
+    }
+  },
+  "required": ["type"],
+  "additionalProperties": false
+}

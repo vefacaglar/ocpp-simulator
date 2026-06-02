@@ -187,3 +187,149 @@ func ParseStopTransactionResponse(payload json.RawMessage) (*StopTransactionResp
 	}
 	return &resp, nil
 }
+
+// CSMS-initiated request parsing
+
+func (p *Protocol) ParseRemoteStartTransactionRequest(payload json.RawMessage) (*ocpp.RemoteStartTransactionRequest, error) {
+	var req ocpp.RemoteStartTransactionRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, fmt.Errorf("parse RemoteStartTransaction.req: %w", err)
+	}
+	if req.IDTag == "" {
+		return nil, fmt.Errorf("RemoteStartTransaction: idTag is required")
+	}
+	return &req, nil
+}
+
+func (p *Protocol) ParseRemoteStopTransactionRequest(payload json.RawMessage) (*ocpp.RemoteStopTransactionRequest, error) {
+	var req ocpp.RemoteStopTransactionRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, fmt.Errorf("parse RemoteStopTransaction.req: %w", err)
+	}
+	return &req, nil
+}
+
+func (p *Protocol) ParseResetRequest(payload json.RawMessage) (*ocpp.ResetRequest, error) {
+	var req ocpp.ResetRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, fmt.Errorf("parse Reset.req: %w", err)
+	}
+	if req.Type != "Hard" && req.Type != "Soft" {
+		return nil, fmt.Errorf("Reset: invalid type %q", req.Type)
+	}
+	return &req, nil
+}
+
+func (p *Protocol) ParseUnlockConnectorRequest(payload json.RawMessage) (*ocpp.UnlockConnectorRequest, error) {
+	var req ocpp.UnlockConnectorRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, fmt.Errorf("parse UnlockConnector.req: %w", err)
+	}
+	if req.ConnectorID <= 0 {
+		return nil, fmt.Errorf("UnlockConnector: connectorId must be > 0")
+	}
+	return &req, nil
+}
+
+func (p *Protocol) ParseChangeConfigurationRequest(payload json.RawMessage) (*ocpp.ChangeConfigurationRequest, error) {
+	var req ocpp.ChangeConfigurationRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, fmt.Errorf("parse ChangeConfiguration.req: %w", err)
+	}
+	if req.Key == "" {
+		return nil, fmt.Errorf("ChangeConfiguration: key is required")
+	}
+	return &req, nil
+}
+
+func (p *Protocol) ParseGetConfigurationRequest(payload json.RawMessage) (*ocpp.GetConfigurationRequest, error) {
+	var req ocpp.GetConfigurationRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, fmt.Errorf("parse GetConfiguration.req: %w", err)
+	}
+	return &req, nil
+}
+
+func (p *Protocol) ParseTriggerMessageRequest(payload json.RawMessage) (*ocpp.TriggerMessageRequest, error) {
+	var req ocpp.TriggerMessageRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, fmt.Errorf("parse TriggerMessage.req: %w", err)
+	}
+	if req.RequestedMessage == "" {
+		return nil, fmt.Errorf("TriggerMessage: requestedMessage is required")
+	}
+	return &req, nil
+}
+
+func (p *Protocol) ParseChangeAvailabilityRequest(payload json.RawMessage) (*ocpp.ChangeAvailabilityRequest, error) {
+	var req ocpp.ChangeAvailabilityRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, fmt.Errorf("parse ChangeAvailability.req: %w", err)
+	}
+	if req.Type != "Operative" && req.Type != "Inoperative" {
+		return nil, fmt.Errorf("ChangeAvailability: invalid type %q", req.Type)
+	}
+	return &req, nil
+}
+
+// CSMS-initiated response builders
+
+func (p *Protocol) BuildRemoteStartTransactionResponse(status string) (json.RawMessage, error) {
+	resp := struct {
+		Status string `json:"status"`
+	}{Status: status}
+	return json.Marshal(resp)
+}
+
+func (p *Protocol) BuildRemoteStopTransactionResponse(status string) (json.RawMessage, error) {
+	resp := struct {
+		Status string `json:"status"`
+	}{Status: status}
+	return json.Marshal(resp)
+}
+
+func (p *Protocol) BuildResetResponse(status string) (json.RawMessage, error) {
+	resp := struct {
+		Status string `json:"status"`
+	}{Status: status}
+	return json.Marshal(resp)
+}
+
+func (p *Protocol) BuildUnlockConnectorResponse(status string) (json.RawMessage, error) {
+	resp := struct {
+		Status string `json:"status"`
+	}{Status: status}
+	return json.Marshal(resp)
+}
+
+func (p *Protocol) BuildChangeConfigurationResponse(status string) (json.RawMessage, error) {
+	resp := struct {
+		Status string `json:"status"`
+	}{Status: status}
+	return json.Marshal(resp)
+}
+
+func (p *Protocol) BuildGetConfigurationResponse(configKeys []ocpp.ConfigurationKey, unknownKeys []string) (json.RawMessage, error) {
+	resp := struct {
+		ConfigurationKey []ocpp.ConfigurationKey `json:"configurationKey,omitempty"`
+		UnknownKey       []string                `json:"unknownKey,omitempty"`
+	}{
+		ConfigurationKey: configKeys,
+		UnknownKey:       unknownKeys,
+	}
+	return json.Marshal(resp)
+}
+
+func (p *Protocol) BuildTriggerMessageResponse(status string) (json.RawMessage, error) {
+	resp := struct {
+		Status string `json:"status"`
+	}{Status: status}
+	return json.Marshal(resp)
+}
+
+func (p *Protocol) BuildChangeAvailabilityResponse(status string) (json.RawMessage, error) {
+	resp := struct {
+		Status string `json:"status"`
+	}{Status: status}
+	return json.Marshal(resp)
+}

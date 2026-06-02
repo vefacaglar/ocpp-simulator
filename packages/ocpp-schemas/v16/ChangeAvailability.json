@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:ocpp:1.6:1.6:ChangeAvailabilityRequest",
+  "type": "object",
+  "properties": {
+    "connectorId": {
+      "type": "integer"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["Operative", "Inoperative"]
+    }
+  },
+  "required": ["connectorId", "type"],
+  "additionalProperties": false
+}

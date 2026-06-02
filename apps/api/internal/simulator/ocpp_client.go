@@ -24,6 +24,7 @@ type OcppWebSocketClient struct {
 	pending         *ocpp.PendingCallRegistry
 	eventBus        *realtime.EventBus
 	responseHandler ResponseHandler
+	inboundHandler  *InboundCallHandler
 
 	conn               *websocket.Conn
 	mu                 sync.Mutex
@@ -53,6 +54,10 @@ func NewOcppWebSocketClient(cpID, url string, protocol ocpp.Protocol, eventBus *
 
 func (c *OcppWebSocketClient) SetResponseHandler(handler ResponseHandler) {
 	c.responseHandler = handler
+}
+
+func (c *OcppWebSocketClient) SetInboundHandler(handler *InboundCallHandler) {
+	c.inboundHandler = handler
 }
 
 func (c *OcppWebSocketClient) Connect(ctx context.Context) error {
@@ -208,6 +213,8 @@ func (c *OcppWebSocketClient) readLoop(ctx context.Context) {
 		c.publishOCPPEvent("inbound", msg.Action, json.RawMessage(raw))
 
 		switch msg.MessageTypeID {
+		case ocpp.CALL:
+			c.handleInboundCall(msg)
 		case ocpp.CALLRESULT:
 			if call, ok := c.pending.Resolve(msg.UniqueID); ok {
 				c.handleResponse(call, msg)
@@ -318,6 +325,33 @@ func (c *OcppWebSocketClient) handleResponse(call ocpp.PendingCall, msg ocpp.Mes
 		}
 		_ = resp
 		log.Printf("[%s] StopTransaction accepted", c.cpID)
+	}
+}
+
+func (c *OcppWebSocketClient) handleInboundCall(msg ocpp.Message) {
+	if c.inboundHandler == nil {
+		log.Printf("[%s] no inbound handler, rejecting %s", c.cpID, msg.Action)
+		errMsg, _ := c.codec.BuildError(msg.UniqueID, ocpp.ErrorCodeNotImplemented,
+			fmt.Sprintf("action %s not supported", msg.Action), nil)
+		c.Send(errMsg)
+		return
+	}
+
+	payload, err := c.inboundHandler.Handle(c.cpID, msg)
+	if err != nil {
+		log.Printf("[%s] inbound %s error: %v", c.cpID, msg.Action, err)
+		errMsg, _ := c.codec.BuildError(msg.UniqueID, ocpp.ErrorCodeNotImplemented, err.Error(), nil)
+		c.Send(errMsg)
+		return
+	}
+
+	resultMsg, err := c.codec.BuildResult(msg.UniqueID, payload)
+	if err != nil {
+		log.Printf("[%s] build CALLRESULT for %s error: %v", c.cpID, msg.Action, err)
+		return
+	}
+	if err := c.Send(resultMsg); err != nil {
+		log.Printf("[%s] send CALLRESULT for %s error: %v", c.cpID, msg.Action, err)
 	}
 }
 

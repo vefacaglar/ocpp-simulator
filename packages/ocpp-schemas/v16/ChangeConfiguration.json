@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:ocpp:1.6:1.6:ChangeConfigurationRequest",
+  "type": "object",
+  "properties": {
+    "key": {
+      "type": "string",
+      "maxLength": 50
+    },
+    "value": {
+      "type": "string",
+      "maxLength": 500
+    }
+  },
+  "required": ["key", "value"],
+  "additionalProperties": false
+}

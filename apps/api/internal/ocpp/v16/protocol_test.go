@@ -249,3 +249,370 @@ func TestInvalidEnum_Rejected(t *testing.T) {
 		t.Error("expected validation error for invalid enum value Busy")
 	}
 }
+
+// CSMS-initiated message schema validation tests
+
+func TestRemoteStartTransaction_SchemaValid(t *testing.T) {
+	payload := []byte(`{"idTag":"ABC12345","connectorId":1}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "RemoteStartTransaction", ocppschemas.Request, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestRemoteStartTransaction_Minimal_SchemaValid(t *testing.T) {
+	payload := []byte(`{"idTag":"ABC12345"}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "RemoteStartTransaction", ocppschemas.Request, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestRemoteStartTransactionResponse_SchemaValid(t *testing.T) {
+	payload := []byte(`{"status":"Accepted"}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "RemoteStartTransaction", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestRemoteStopTransaction_SchemaValid(t *testing.T) {
+	payload := []byte(`{"transactionId":42}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "RemoteStopTransaction", ocppschemas.Request, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestRemoteStopTransactionResponse_SchemaValid(t *testing.T) {
+	payload := []byte(`{"status":"Accepted"}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "RemoteStopTransaction", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestReset_SchemaValid(t *testing.T) {
+	payload := []byte(`{"type":"Soft"}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "Reset", ocppschemas.Request, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestResetResponse_SchemaValid(t *testing.T) {
+	payload := []byte(`{"status":"Accepted"}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "Reset", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestUnlockConnector_SchemaValid(t *testing.T) {
+	payload := []byte(`{"connectorId":1}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "UnlockConnector", ocppschemas.Request, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestUnlockConnectorResponse_SchemaValid(t *testing.T) {
+	payload := []byte(`{"status":"Unlocked"}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "UnlockConnector", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestChangeConfiguration_SchemaValid(t *testing.T) {
+	payload := []byte(`{"key":"HeartbeatInterval","value":"300"}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "ChangeConfiguration", ocppschemas.Request, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestChangeConfigurationResponse_SchemaValid(t *testing.T) {
+	payload := []byte(`{"status":"Accepted"}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "ChangeConfiguration", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestGetConfiguration_SchemaValid(t *testing.T) {
+	payload := []byte(`{"key":["HeartbeatInterval","MeterValueSampleInterval"]}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "GetConfiguration", ocppschemas.Request, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestGetConfiguration_EmptyKeys_SchemaValid(t *testing.T) {
+	payload := []byte(`{}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "GetConfiguration", ocppschemas.Request, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestGetConfigurationResponse_SchemaValid(t *testing.T) {
+	payload := []byte(`{"configurationKey":[{"key":"HeartbeatInterval","readonly":false,"value":"300"}],"unknownKey":[]}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "GetConfiguration", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestTriggerMessage_SchemaValid(t *testing.T) {
+	payload := []byte(`{"requestedMessage":"StatusNotification","connectorId":1}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "TriggerMessage", ocppschemas.Request, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestTriggerMessageResponse_SchemaValid(t *testing.T) {
+	payload := []byte(`{"status":"Accepted"}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "TriggerMessage", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestChangeAvailability_SchemaValid(t *testing.T) {
+	payload := []byte(`{"connectorId":1,"type":"Inoperative"}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "ChangeAvailability", ocppschemas.Request, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestChangeAvailabilityResponse_SchemaValid(t *testing.T) {
+	payload := []byte(`{"status":"Accepted"}`)
+	if err := ocppschemas.Validate(ocppschemas.V16, "ChangeAvailability", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+// CSMS-initiated request parsing tests
+
+func TestParseRemoteStartTransactionRequest(t *testing.T) {
+	p := NewProtocol()
+	payload := json.RawMessage(`{"idTag":"ABC12345","connectorId":1}`)
+	req, err := p.ParseRemoteStartTransactionRequest(payload)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if req.IDTag != "ABC12345" {
+		t.Errorf("expected idTag ABC12345, got %s", req.IDTag)
+	}
+	if req.ConnectorID == nil || *req.ConnectorID != 1 {
+		t.Errorf("expected connectorId 1")
+	}
+}
+
+func TestParseRemoteStartTransactionRequest_MissingIDTag(t *testing.T) {
+	p := NewProtocol()
+	payload := json.RawMessage(`{"connectorId":1}`)
+	_, err := p.ParseRemoteStartTransactionRequest(payload)
+	if err == nil {
+		t.Error("expected error for missing idTag")
+	}
+}
+
+func TestParseRemoteStopTransactionRequest(t *testing.T) {
+	p := NewProtocol()
+	payload := json.RawMessage(`{"transactionId":42}`)
+	req, err := p.ParseRemoteStopTransactionRequest(payload)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if req.TransactionID != 42 {
+		t.Errorf("expected transactionId 42, got %d", req.TransactionID)
+	}
+}
+
+func TestParseResetRequest(t *testing.T) {
+	p := NewProtocol()
+	payload := json.RawMessage(`{"type":"Soft"}`)
+	req, err := p.ParseResetRequest(payload)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if req.Type != "Soft" {
+		t.Errorf("expected type Soft, got %s", req.Type)
+	}
+}
+
+func TestParseResetRequest_InvalidType(t *testing.T) {
+	p := NewProtocol()
+	payload := json.RawMessage(`{"type":"Invalid"}`)
+	_, err := p.ParseResetRequest(payload)
+	if err == nil {
+		t.Error("expected error for invalid type")
+	}
+}
+
+func TestParseUnlockConnectorRequest(t *testing.T) {
+	p := NewProtocol()
+	payload := json.RawMessage(`{"connectorId":1}`)
+	req, err := p.ParseUnlockConnectorRequest(payload)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if req.ConnectorID != 1 {
+		t.Errorf("expected connectorId 1, got %d", req.ConnectorID)
+	}
+}
+
+func TestParseUnlockConnectorRequest_InvalidID(t *testing.T) {
+	p := NewProtocol()
+	payload := json.RawMessage(`{"connectorId":0}`)
+	_, err := p.ParseUnlockConnectorRequest(payload)
+	if err == nil {
+		t.Error("expected error for connectorId 0")
+	}
+}
+
+func TestParseChangeConfigurationRequest(t *testing.T) {
+	p := NewProtocol()
+	payload := json.RawMessage(`{"key":"HeartbeatInterval","value":"300"}`)
+	req, err := p.ParseChangeConfigurationRequest(payload)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if req.Key != "HeartbeatInterval" {
+		t.Errorf("expected key HeartbeatInterval, got %s", req.Key)
+	}
+	if req.Value != "300" {
+		t.Errorf("expected value 300, got %s", req.Value)
+	}
+}
+
+func TestParseGetConfigurationRequest(t *testing.T) {
+	p := NewProtocol()
+	payload := json.RawMessage(`{"key":["HeartbeatInterval"]}`)
+	req, err := p.ParseGetConfigurationRequest(payload)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(req.Key) != 1 || req.Key[0] != "HeartbeatInterval" {
+		t.Errorf("expected [HeartbeatInterval], got %v", req.Key)
+	}
+}
+
+func TestParseGetConfigurationRequest_EmptyKeys(t *testing.T) {
+	p := NewProtocol()
+	payload := json.RawMessage(`{}`)
+	req, err := p.ParseGetConfigurationRequest(payload)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(req.Key) != 0 {
+		t.Errorf("expected empty keys, got %v", req.Key)
+	}
+}
+
+func TestParseTriggerMessageRequest(t *testing.T) {
+	p := NewProtocol()
+	payload := json.RawMessage(`{"requestedMessage":"StatusNotification","connectorId":1}`)
+	req, err := p.ParseTriggerMessageRequest(payload)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if req.RequestedMessage != "StatusNotification" {
+		t.Errorf("expected StatusNotification, got %s", req.RequestedMessage)
+	}
+}
+
+func TestParseChangeAvailabilityRequest(t *testing.T) {
+	p := NewProtocol()
+	payload := json.RawMessage(`{"connectorId":1,"type":"Inoperative"}`)
+	req, err := p.ParseChangeAvailabilityRequest(payload)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if req.ConnectorID != 1 {
+		t.Errorf("expected connectorId 1, got %d", req.ConnectorID)
+	}
+	if req.Type != "Inoperative" {
+		t.Errorf("expected type Inoperative, got %s", req.Type)
+	}
+}
+
+// CSMS-initiated response builder tests
+
+func TestBuildRemoteStartTransactionResponse_SchemaValid(t *testing.T) {
+	p := NewProtocol()
+	payload, err := p.BuildRemoteStartTransactionResponse("Accepted")
+	if err != nil {
+		t.Fatalf("build error: %v", err)
+	}
+	if err := ocppschemas.Validate(ocppschemas.V16, "RemoteStartTransaction", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestBuildRemoteStopTransactionResponse_SchemaValid(t *testing.T) {
+	p := NewProtocol()
+	payload, err := p.BuildRemoteStopTransactionResponse("Accepted")
+	if err != nil {
+		t.Fatalf("build error: %v", err)
+	}
+	if err := ocppschemas.Validate(ocppschemas.V16, "RemoteStopTransaction", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestBuildResetResponse_SchemaValid(t *testing.T) {
+	p := NewProtocol()
+	payload, err := p.BuildResetResponse("Accepted")
+	if err != nil {
+		t.Fatalf("build error: %v", err)
+	}
+	if err := ocppschemas.Validate(ocppschemas.V16, "Reset", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestBuildUnlockConnectorResponse_SchemaValid(t *testing.T) {
+	p := NewProtocol()
+	payload, err := p.BuildUnlockConnectorResponse("Unlocked")
+	if err != nil {
+		t.Fatalf("build error: %v", err)
+	}
+	if err := ocppschemas.Validate(ocppschemas.V16, "UnlockConnector", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestBuildChangeConfigurationResponse_SchemaValid(t *testing.T) {
+	p := NewProtocol()
+	payload, err := p.BuildChangeConfigurationResponse("Accepted")
+	if err != nil {
+		t.Fatalf("build error: %v", err)
+	}
+	if err := ocppschemas.Validate(ocppschemas.V16, "ChangeConfiguration", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestBuildGetConfigurationResponse_SchemaValid(t *testing.T) {
+	p := NewProtocol()
+	val := "300"
+	payload, err := p.BuildGetConfigurationResponse([]ocpp.ConfigurationKey{
+		{Key: "HeartbeatInterval", Readonly: false, Value: &val},
+	}, nil)
+	if err != nil {
+		t.Fatalf("build error: %v", err)
+	}
+	if err := ocppschemas.Validate(ocppschemas.V16, "GetConfiguration", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestBuildTriggerMessageResponse_SchemaValid(t *testing.T) {
+	p := NewProtocol()
+	payload, err := p.BuildTriggerMessageResponse("Accepted")
+	if err != nil {
+		t.Fatalf("build error: %v", err)
+	}
+	if err := ocppschemas.Validate(ocppschemas.V16, "TriggerMessage", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}
+
+func TestBuildChangeAvailabilityResponse_SchemaValid(t *testing.T) {
+	p := NewProtocol()
+	payload, err := p.BuildChangeAvailabilityResponse("Accepted")
+	if err != nil {
+		t.Fatalf("build error: %v", err)
+	}
+	if err := ocppschemas.Validate(ocppschemas.V16, "ChangeAvailability", ocppschemas.Response, payload); err != nil {
+		t.Fatalf("schema validation failed: %v", err)
+	}
+}

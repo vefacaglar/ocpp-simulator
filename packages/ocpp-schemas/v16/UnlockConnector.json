@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "id": "urn:ocpp:1.6:1.6:UnlockConnectorRequest",
+  "type": "object",
+  "properties": {
+    "connectorId": {
+      "type": "integer"
+    }
+  },
+  "required": ["connectorId"],
+  "additionalProperties": false
+}

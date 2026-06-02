@@ -10,7 +10,14 @@ import (
 	"os"
 	"time"
 
+	"github.com/user/ocpp-simulator/apps/csms/internal/csms"
 	"nhooyr.io/websocket"
+)
+
+var (
+	connections *csms.ConnectionRegistry
+	pending     *csms.PendingCallRegistry
+	api         *csms.API
 )
 
 func main() {
@@ -19,8 +26,13 @@ func main() {
 		port = "8080"
 	}
 
+	connections = csms.NewConnectionRegistry()
+	pending = csms.NewPendingCallRegistry()
+	api = csms.NewAPI(connections, pending)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ocpp/{chargePointId}", handleOCPP)
+	api.RegisterRoutes(mux)
 
 	addr := ":" + port
 	log.Printf("Mock OCPP CSMS listening on %s", addr)
@@ -44,6 +56,10 @@ func handleOCPP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "closing")
+
+	// Register the connection
+	connections.Register(chargePointId, conn)
+	defer connections.Unregister(chargePointId)
 
 	log.Printf("[%s] connected from %s (subprotocol: %s)", chargePointId, r.RemoteAddr, r.Header.Get("Sec-WebSocket-Protocol"))
 
@@ -119,10 +135,18 @@ func handleFrame(frame []byte) string {
 		return handleCall(uniqueID, action, string(arr[3]))
 	case 3: // CALLRESULT
 		log.Printf("CALLRESULT uniqueID=%s", uniqueID)
+		// Dispatch to pending registry for CSMS-initiated CALLs
+		if len(arr) >= 3 {
+			pending.Resolve(uniqueID, []byte(arr[2]))
+		}
 		return ""
 	case 4: // CALLERROR
 		if len(arr) >= 5 {
 			log.Printf("CALLERROR uniqueID=%s", uniqueID)
+			var errorCode, errorDesc string
+			json.Unmarshal(arr[2], &errorCode)
+			json.Unmarshal(arr[3], &errorDesc)
+			pending.ResolveError(uniqueID, errorCode, errorDesc)
 		}
 		return ""
 	default:

@@ -8,6 +8,13 @@ require (
 	github.com/user/ocpp-simulator/packages/ocpp-schemas v0.0.0
 )
 
+require (
+	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
+	golang.org/x/net v0.27.0 // indirect
+	golang.org/x/sync v0.7.0 // indirect
+)
+
 replace github.com/user/ocpp-simulator/packages/ocpp-protocol => ../../packages/ocpp-protocol
 
 replace github.com/user/ocpp-simulator/packages/ocpp-schemas => ../../packages/ocpp-schemas

@@ -48,12 +48,12 @@ type StdoutEmitter struct {
 	IncludeFrame bool
 }
 
-func (StdoutEmitter) Emit(ev AuditEvent) {
+func (e StdoutEmitter) Emit(ev AuditEvent) {
 	// Use the standard logger so log level/format can be tuned via
 	// log.SetFlags in the entrypoint. We encode the event to JSON
 	// so downstream log shippers can parse it.
 	clone := ev
-	if !defaultEmitter.IncludeFrame {
+	if !e.IncludeFrame {
 		clone.Frame = ""
 	}
 	data, err := json.Marshal(clone)

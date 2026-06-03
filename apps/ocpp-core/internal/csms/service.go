@@ -154,14 +154,17 @@ func (s *Service) nextUniqueID() string {
 	s.uniqueID++
 	n := s.uniqueID
 	s.mu.Unlock()
-	// Mix a timestamp and the counter for a 32-char hex id
-	// that's monotonically increasing per process and unique
-	// across restarts.
+	// Mix a process-local counter and 8 random bytes so two
+	// concurrent processes can produce non-colliding ids even if
+	// their counters are reset to 0. The OCPP wire contract
+	// only requires the id be a non-empty string; uniqueness
+	// across processes is best-effort. The first 8 hex chars
+	// are the per-process counter; the rest is randomness.
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback to time-derived randomness; uniqueness is
-		// best-effort here, the OCPP wire contract only
-		// requires that the id be a non-empty string.
+		// Fallback to time-derived randomness; the OCPP wire
+		// contract only requires that the id be a non-empty
+		// string.
 		b = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
 	}
 	return fmt.Sprintf("%08x-%s", n, hex.EncodeToString(b))

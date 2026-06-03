@@ -9,8 +9,6 @@ package canonlog
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -85,13 +83,8 @@ func (s *Service) persist(ctx context.Context, topic, direction string, payload 
 	}
 	if msg, err := s.codec.Decode(payload); err == nil {
 		row.MessageType = msgTypeName(msg.MessageTypeID)
-		if row.MessageTypeID == nil {
-			id := int(msg.MessageTypeID)
-			row.MessageTypeID = &id
-		} else {
-			v := int(msg.MessageTypeID)
-			row.MessageTypeID = &v
-		}
+		id := int(msg.MessageTypeID)
+		row.MessageTypeID = &id
 		row.UniqueID = strPtr(msg.UniqueID)
 		if msg.Action != "" {
 			a := msg.Action
@@ -144,12 +137,3 @@ func strPtr(s string) *string {
 	}
 	return &s
 }
-
-// Ensure imports used (avoid "imported and not used" when trimming
-// during edits). These are referenced by helpers above; this
-// comment block keeps the linter happy if the file is regenerated
-// in isolation.
-var (
-	_ = sql.ErrNoRows
-	_ = json.Marshal
-)

@@ -24,6 +24,21 @@ Current accepted model:
 - `/api/realtime` is only for logs, state, and runtime events.
 - Unit ↔ CSMS traffic is raw OCPP-J JSON array frames only. Do not wrap OCPP messages in objects before sending over the OCPP WebSocket.
 
+Target service split:
+
+- `ocpp-gateway`: WebSocket edge. It accepts charge point connections, publishes inbound raw OCPP frames to MQTT, subscribes to outbound MQTT topics, and writes outbound raw frames to the correct WebSocket.
+- `message-processor`: MQTT consumer/router. It reads inbound raw frames, routes by OCPP message type/action, and publishes raw response frames.
+- `ocpp-core`: DB and business owner. First phase is message logging only; later it owns transaction state, connector state, authorization, remote commands, and session history.
+
+Target MQTT topics:
+
+```txt
+ocpp/{chargePointId}/in
+ocpp/{chargePointId}/out
+```
+
+MQTT payloads are the same raw OCPP-J JSON arrays that travel over WebSocket. Do not use `{ chargePointId, direction, payload }` wrapper objects.
+
 ## Non-Negotiable Architecture Rules
 
 ### 1. Each simulated charge point owns its own OCPP WebSocket connection
@@ -65,6 +80,8 @@ Incorrect:
 ```
 
 The OCPP socket must not carry DTO envelopes, command wrappers, event wrappers, UI models, or internal simulator models. If a wrapper is useful for UI state, REST responses, logs, or storage, unwrap it before crossing the OCPP transport boundary.
+
+The same rule applies to MQTT. Topics carry routing metadata; payloads remain raw OCPP frames.
 
 ### 2. REST API must not transport OCPP messages
 
@@ -175,6 +192,45 @@ InternalEventBus replaces OCPP WebSocket communication
 The event bus is for internal decoupling only. It must not erase the distinction between OCPP sockets, API commands, and UI streams.
 
 ## Required Simulator Modules
+
+### ocpp-gateway
+
+The gateway is the WebSocket edge service. It has one job: keep charge point WebSocket connections alive and bridge raw OCPP frames to/from MQTT.
+
+Responsibilities:
+
+- Accept WebSocket connections from charge points.
+- Track connection by `chargePointId`.
+- Publish inbound WebSocket messages unchanged to `ocpp/{chargePointId}/in`.
+- Subscribe to `ocpp/{chargePointId}/out`.
+- Write outbound MQTT messages unchanged to the matching charge point WebSocket.
+- Handle connect, disconnect, ping/pong, close, and reconnect visibility.
+- Avoid business logic, persistence decisions, and wrapper payloads.
+
+### message-processor
+
+The processor consumes inbound OCPP frames from MQTT and produces outbound frames.
+
+Responsibilities:
+
+- Subscribe to `ocpp/+/in`.
+- Parse raw OCPP-J array frames.
+- Route by message type and action.
+- Generate spec-exact CALLRESULT/CALLERROR frames for supported flows.
+- Publish responses to `ocpp/{chargePointId}/out`.
+- In early phases, produce happy-path responses directly.
+- Later, delegate business decisions to `ocpp-core`.
+
+### ocpp-core
+
+The core service owns data and business.
+
+Responsibilities:
+
+- Own its own database.
+- First phase: subscribe to `ocpp/+/in` and `ocpp/+/out`, then persist raw message logs.
+- Later phases: own transaction state, connector state, authorization decisions, session history, and remote command APIs.
+- Never expose internal business models on the OCPP WebSocket or MQTT payload.
 
 ### Charge Point Session
 

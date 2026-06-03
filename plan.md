@@ -13,6 +13,8 @@ The application runs locally and consists of:
 - Go API backend
 - Go simulator runtime
 - per-charge-point OCPP WebSocket session proxy for Central System communication
+- target split into `ocpp-gateway`, `message-processor`, and `ocpp-core`
+- MQTT message bus for local service-to-service OCPP frame routing
 - Go WebSocket server for live UI updates
 - Go mock OCPP Central System (a standalone test server, not connected to any real backend)
 - Vue web client
@@ -22,6 +24,26 @@ The application runs locally and consists of:
 The intended final form is a developer tool that can be started locally, opened in the browser, and used to create, connect, control, and inspect simulated OCPP charge points.
 
 This is an OCPP simulator first. The web UI is the control surface for simulated charge point behavior; it is not the product's architectural center. Every simulated unit must behave as its own charge point with its own OCPP WebSocket session.
+
+The target architecture is event-driven and service-split:
+
+```txt
+Charge Point
+  -> WebSocket
+  -> ocpp-gateway
+  -> MQTT ocpp/{chargePointId}/in
+  -> message-processor
+  -> MQTT ocpp/{chargePointId}/out
+  -> ocpp-gateway
+  -> WebSocket
+  -> Charge Point
+
+MQTT ocpp/{chargePointId}/in and /out
+  -> ocpp-core
+  -> DB
+```
+
+`ocpp-gateway` owns WebSocket connections only. `message-processor` owns MQTT consumption, OCPP frame routing, and response publication. `ocpp-core` owns persistence and business state; first it logs raw inbound/outbound messages, later it owns transactions, connector state, authorization decisions, remote command APIs, and session history.
 
 ---
 
@@ -148,7 +170,10 @@ Recommended structure:
 ```txt
 ocpp-simulator/
 ├─ apps/
-│  ├─ api/              # Go API + simulator runtime
+│  ├─ api/              # Current Go API + simulator runtime
+│  ├─ ocpp-gateway/     # Target: WebSocket edge, no business
+│  ├─ message-processor/ # Target: MQTT consumer/router and response publisher
+│  ├─ ocpp-core/        # Target: DB + business owner; starts with message logs
 │  ├─ web/              # Vue client
 │  └─ csms/             # Go mock OCPP Central System (test server)
 │
@@ -172,6 +197,7 @@ Recommended backend stack:
 
 - Go
 - SQLite
+- MQTT for local message bus in the target split
 - sqlc or lightweight database access layer
 - goose or golang-migrate for migrations
 - gorilla/websocket or nhooyr.io/websocket for WebSocket handling
@@ -183,6 +209,47 @@ Preferred direction:
 - Keep the simulator runtime independent from the HTTP framework.
 - Keep OCPP protocol implementation independent from persistence.
 - Avoid over-frameworking the project.
+
+### 5.4 Target Service Responsibilities
+
+`ocpp-gateway`:
+
+- Accepts charge point WebSocket connections.
+- Maintains one live connection per connected charge point.
+- Publishes inbound raw OCPP frames to `ocpp/{chargePointId}/in`.
+- Subscribes to `ocpp/{chargePointId}/out` and writes each raw OCPP frame to the matching charge point WebSocket.
+- Does not make business decisions and does not wrap OCPP payloads.
+
+`message-processor`:
+
+- Subscribes to `ocpp/+/in`.
+- Parses raw OCPP-J array frames only enough to identify message type, unique ID, action, and payload.
+- Dispatches to action handlers.
+- Publishes raw OCPP-J response frames to `ocpp/{chargePointId}/out`.
+- In early phases it may produce happy-path responses itself. As `ocpp-core` matures, business decisions should move to `ocpp-core`.
+
+`ocpp-core`:
+
+- Owns its own database.
+- First phase: subscribes to inbound/outbound MQTT topics and persists raw OCPP message logs.
+- Later phases: owns transaction state, connector state, authorization decisions, session history, remote command APIs, and business rules.
+- Does not put internal business models on the OCPP wire.
+
+MQTT topic convention:
+
+```txt
+ocpp/{chargePointId}/in
+ocpp/{chargePointId}/out
+```
+
+Optional versioned convention, if needed later:
+
+```txt
+ocpp/{ocppVersion}/{chargePointId}/in
+ocpp/{ocppVersion}/{chargePointId}/out
+```
+
+MQTT payload convention: payloads are raw OCPP-J JSON array frames only. Metadata such as `chargePointId`, direction, and optional protocol version belongs in the topic or broker metadata, not in a payload wrapper.
 
 ### 5.3 Frontend
 

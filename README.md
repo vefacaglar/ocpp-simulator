@@ -4,10 +4,22 @@ A local-first, web-based OCPP charge point simulator for developers testing EV c
 
 ## Stack
 
-- **Backend**: Go (API + simulator runtime + mock CSMS)
+- **Backend**: Go (current API/runtime + mock CSMS; target split: `ocpp-gateway`, `message-processor`, `ocpp-core`)
 - **Frontend**: Vue 3 + Vite + TypeScript + Pinia
-- **Database**: SQLite
+- **Messaging**: MQTT target for gateway/processor/core communication
+- **Database**: SQLite now; `ocpp-core` owns its own DB in the target split
 - **Monorepo**: Turborepo + pnpm + Go workspace
+
+Target message flow:
+
+```text
+Charge Point WS -> ocpp-gateway -> MQTT ocpp/{chargePointId}/in
+MQTT ocpp/{chargePointId}/in -> message-processor -> MQTT ocpp/{chargePointId}/out
+MQTT ocpp/{chargePointId}/out -> ocpp-gateway -> Charge Point WS
+MQTT in/out topics -> ocpp-core -> DB/logs now, business state later
+```
+
+MQTT payloads are raw OCPP-J JSON array frames only. `chargePointId` and direction live in the topic, not in a wrapper payload.
 
 ## Prerequisites
 
@@ -72,7 +84,7 @@ cd packages/ocpp-schemas && go test ./...
 
 ```
 apps/
-  api/              # Go API + simulator runtime
+  api/              # Current Go API + simulator runtime; will split into gateway/processor/core
   web/              # Vue 3 dashboard
   csms/             # Mock OCPP Central System
 packages/

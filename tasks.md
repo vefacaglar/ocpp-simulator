@@ -134,7 +134,7 @@ Next available: **All tasks complete**.
   Create `packages/ocpp-protocol` with public `pkg/` packages for codec, message envelope, protocol interfaces, pending calls, OCPP 1.6J, and v2.0.1 placeholders. Move existing protocol tests and keep schema validation green.
   _Acceptance:_ `cd packages/ocpp-protocol && go test ./...`; `cd packages/ocpp-schemas && go test ./...`.
   _Blocked by:_ T21
-  _Notes:_ 5 paket çıkarıldı: `pkg/codec`, `pkg/message` (MessageTypeID/Message/ErrorCode/GenerateUniqueID), `pkg/protocol` (interface, tüm input/request types, Factory), `pkg/pendingcalls` (PendingCall + Registry), `pkg/v16` (Protocol impl + Parse*Response). apps/api yeni paketleri import edecek şekilde güncellendi; eski `internal/ocpp` silindi. v201 placeholder ayrı bir task'ta.
+  _Notes:_ 6 paket çıkarıldı: `pkg/codec`, `pkg/message` (MessageTypeID/Message/ErrorCode/GenerateUniqueID), `pkg/protocol` (interface, tüm input/request types, Factory), `pkg/pendingcalls` (PendingCall + Registry), `pkg/v16` (Protocol impl + Parse*Response), `pkg/v201` (2.0.1 placeholder, `ErrNotImplemented` döner, `protocol.Protocol`'ü derleme-zamanı sağlar). apps/api yeni paketleri import edecek şekilde güncellendi; eski `internal/ocpp` silindi. Tüm go.mod'lar self-contained: `apps/api` ve `packages/ocpp-protocol` kendi `require`/`replace` direktifleriyle go.work olmadan da (`GOWORK=off`) build & test geçer.
 
 - [ ] **T23 — Split simulator-api from current apps/api** 🔧
   Rename/extract the current combined API into `apps/simulator-api`. Keep CP/connector CRUD, settings, app config DB, `/api/realtime`, and `/api/health`. Remove OCPP frame generation/parsing, MQTT OCPP publishing, runtime transaction/meter/state ownership, and backend OCPP proxy responsibilities.

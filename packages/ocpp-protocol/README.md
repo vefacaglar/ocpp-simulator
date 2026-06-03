@@ -9,8 +9,9 @@ Public packages:
 - `pkg/protocol` — `Protocol` interface, all CP-initiated input types, all CSMS-initiated request types, `ConfigurationKey`, and a `Factory` keyed by version string.
 - `pkg/pendingcalls` — `PendingCall` and `Registry` for correlating inbound CALLRESULT/CALLERROR back to the originating CALL.
 - `pkg/v16` — OCPP 1.6J implementation of `protocol.Protocol` plus `Parse*Response` helpers for the CP-to-server `.conf` payloads.
+- `pkg/v201` — OCPP 2.0.1 placeholder. Implements `protocol.Protocol` and returns `ErrNotImplemented` from every Build/Parse entry point. The 2.0.1 wire format (string `transactionId`, `TransactionEvent` flow, device model) and `packages/ocpp-schemas/v201` land in a follow-up. The `Factory` can register this stub today.
 
-OCPP 2.0.1 placeholder lives under `pkg/v201` in a later phase. For now, multi-version readiness is satisfied by the version string returned by each `Protocol` and the `Factory` registration pattern.
+Multi-version readiness is satisfied by the version string returned by each `Protocol` and the `Factory` registration pattern: `main()` registers the versions it supports at startup.
 
 The package depends only on `github.com/user/ocpp-simulator/packages/ocpp-schemas` indirectly (test-only). No DB, no MQTT, no HTTP — the only side effects are JSON encoding and time/random for unique IDs.
 

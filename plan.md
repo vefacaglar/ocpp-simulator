@@ -12,7 +12,7 @@ The application runs locally and consists of:
 
 - Go API backend
 - Go simulator runtime
-- Go WebSocket client for OCPP Central System communication
+- per-charge-point OCPP WebSocket session proxy for Central System communication
 - Go WebSocket server for live UI updates
 - Go mock OCPP Central System (a standalone test server, not connected to any real backend)
 - Vue web client
@@ -20,6 +20,8 @@ The application runs locally and consists of:
 - Turborepo monorepo structure
 
 The intended final form is a developer tool that can be started locally, opened in the browser, and used to create, connect, control, and inspect simulated OCPP charge points.
+
+This is an OCPP simulator first. The web UI is the control surface for simulated charge point behavior; it is not the product's architectural center. Every simulated unit must behave as its own charge point with its own OCPP WebSocket session.
 
 ---
 
@@ -53,6 +55,7 @@ Concretely:
 
 - **Wire payloads are spec-exact.** Field names, JSON casing (e.g. `chargePointVendor`, `idTagInfo`, `meterStart`), data types, required/optional fields, value ranges, and enum strings must match the OCPP schema for that version (OCPP 1.6J JSON, OCPP 2.0.1 JSON) precisely — character for character.
 - **Message framing is spec-exact.** The OCPP-J wire format `[MessageTypeId, UniqueId, Action, Payload]` for CALL, `[MessageTypeId, UniqueId, Payload]` for CALLRESULT, and `[MessageTypeId, UniqueId, ErrorCode, ErrorDescription, ErrorDetails]` for CALLERROR must be followed exactly, including the standard `ErrorCode` value set.
+- **No wrapper envelopes on the OCPP wire.** Unit ↔ CSMS communication must be sent and received as raw OCPP-J JSON array frames only. Never replace `[2, uniqueId, action, payload]`, `[3, uniqueId, payload]`, or `[4, uniqueId, errorCode, errorDescription, errorDetails]` with object wrappers, DTO envelopes, command objects, or internal models. Wrappers may exist only outside the OCPP transport boundary, for UI state or REST APIs.
 - **Enums and statuses are spec values only.** Connector status, `idTagInfo.status`, `BootNotification` status, stop reasons, measurands, units, etc. must use the literal strings defined by the spec — never paraphrased or localized.
 - **The WebSocket subprotocol is the standard one** (`ocpp1.6`, `ocpp2.0.1`).
 - **Internal models never leak to the wire.** The generic internal domain model (the transaction GUID, `numericId`, dual identity, `ConnectorStateMachine` names, runtime events, etc.) exists only inside the simulator. The version `codec` is the single boundary that translates internal state into spec-exact wire payloads and back. If a value isn't defined by the OCPP spec, it must not appear in an OCPP message.
@@ -97,7 +100,7 @@ The MVP should support:
 - Dynamic charge point deletion
 - Dynamic connector creation
 - Dynamic connector deletion
-- OCPP 1.6J WebSocket client connection
+- OCPP 1.6J WebSocket session per charge point
 - Charge point connect/disconnect
 - BootNotification
 - Heartbeat
@@ -639,19 +642,29 @@ These should be planned but not required for the first MVP.
 
 ---
 
-## 10. OCPP WebSocket Client
+## 10. OCPP WebSocket Session
 
 Each charge point should have its own WebSocket connection to the Central System.
 
-If the simulator runs 10 charge points, it should open 10 independent OCPP WebSocket client connections.
+If the simulator runs 10 charge points, it should open 10 independent OCPP WebSocket sessions.
 
 Recommended behavior:
 
 ```txt
-ChargePointInstance CP-001 -> WebSocket connection 1
-ChargePointInstance CP-002 -> WebSocket connection 2
-ChargePointInstance CP-003 -> WebSocket connection 3
+CP-001 -> WebSocket connection 1 -> ws://central-system/ocpp/CP-001
+CP-002 -> WebSocket connection 2 -> ws://central-system/ocpp/CP-002
+CP-003 -> WebSocket connection 3 -> ws://central-system/ocpp/CP-003
 ```
+
+Current accepted implementation model for CP-initiated behavior:
+
+```txt
+Vue control surface -> /api/ws/{chargePointId} -> centralSystemUrl/{chargePointId}
+```
+
+The UI may drive local device actions such as plug, unplug, Authorize, StartTransaction, StopTransaction, MeterValues, and StatusNotification. Those actions must be sent as OCPP frames over that unit-specific OCPP session. They must not be replaced by generic runtime command APIs as the primary behavior.
+
+This endpoint is not a shared transport. Opening `/api/ws/CP-001` and `/api/ws/CP-002` represents two separate simulated charge point sessions.
 
 ### 10.1 Connection URL
 
@@ -775,6 +788,8 @@ Unknown / unsupported actions reply with a CALLERROR (`NotImplemented` / `NotSup
 
 Every response the mock emits must be valid OCPP (section 2b). The mock depends on `packages/ocpp-schemas` and its tests validate each response against the official `...Response.json` schema (section 8.5).
 
+For CSMS-initiated testing, the mock CSMS may expose REST endpoints such as `POST /api/chargepoints/{id}/remote-start`. These endpoints represent an external actor asking the CSMS to send an OCPP CALL. The actual `RemoteStartTransaction`, `RemoteStopTransaction`, `Reset`, or similar command must still be sent by the mock CSMS over the target charge point's existing OCPP WebSocket.
+
 ### 10b.5 Minimal Structure
 
 ```txt
@@ -801,16 +816,19 @@ apps/csms/
 
 The Go backend must also expose a WebSocket server for the Vue client.
 
-This is separate from the OCPP WebSocket client.
+This is separate from the unit-specific OCPP session proxy.
 
-There are two WebSocket layers:
+There are three relevant communication paths:
 
 ```txt
-1. Go simulator -> OCPP Central System
-   Used for OCPP protocol traffic.
+1. /api/ws/{chargePointId} -> OCPP Central System
+   Used for that unit's OCPP protocol traffic.
 
-2. Vue client -> Go API
+2. /api/realtime
    Used for live logs and runtime state updates.
+
+3. apps/csms REST API -> target CP OCPP WebSocket
+   Used to simulate CSMS-initiated commands.
 ```
 
 ### 11.1 UI WebSocket Endpoint
@@ -826,6 +844,8 @@ The Vue client connects to:
 ```txt
 ws://localhost:7070/api/realtime
 ```
+
+This realtime endpoint is observation-only. It must not be used as the OCPP transport and must not replace `/api/ws/{chargePointId}`.
 
 ### 11.2 Subscription Model
 
@@ -1355,7 +1375,12 @@ settingsStore
 - updateSettings(input)
 ```
 
-The frontend should treat REST API as the command/query layer and WebSocket as the live event layer.
+The frontend has two different WebSocket responsibilities:
+
+- `/api/ws/{chargePointId}` is the selected unit's OCPP session proxy. CP-initiated behavior is sent there as spec-exact OCPP frames.
+- `/api/realtime` is the live event/log/state layer.
+
+REST remains useful for CRUD, settings, history queries, and mock-CSMS test hooks, but it must not replace the unit's OCPP socket for local charge point behavior.
 
 ---
 
@@ -1492,7 +1517,7 @@ Acceptance criteria:
 - CALL / CALLRESULT / CALLERROR encode and decode correctly and round-trip.
 - Responses are matched by unique ID; StartTransaction.conf assigns `numeric_id`.
 - Sent and received messages are logged.
-- `go test ./...` passes for `apps/api` and `packages/ocpp-schemas`, including all tests above.
+- `cd apps/api && go test ./...` and `cd packages/ocpp-schemas && go test ./...` pass, including all tests above.
 - A deliberately malformed or non-spec payload is rejected by the validator in tests (proves the guard works).
 
 ### Phase 5: OCPP WebSocket Client
@@ -1512,7 +1537,7 @@ Note: the mock Central System (`apps/csms`, section 10b) should now return real 
 
 Acceptance criteria:
 
-- `go test ./...` passes for `apps/csms`; every mock response validates against its official OCPP response schema
+- `cd apps/csms && go test ./...` passes; every mock response validates against its official OCPP response schema
 - Charge point connects to the mock Central System URL
 - BootNotification is sent after command and the mock replies `Accepted`
 - Response is received and shown in UI

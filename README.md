@@ -63,8 +63,9 @@ make kill-ports
 ### Go Build & Test
 
 ```bash
-go build ./...   # build all Go modules
-go test ./...    # run all Go tests
+cd apps/api && go test ./...
+cd apps/csms && go test ./...
+cd packages/ocpp-schemas && go test ./...
 ```
 
 ## Project Structure

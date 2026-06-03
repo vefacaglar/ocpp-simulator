@@ -168,6 +168,8 @@ Shape:
 [2, "unique-id", "ActionName", { "payload": "fields" }]
 ```
 
+Simulator rule: this array shape is the wire message. Never wrap it in an object envelope such as `{ "type": "CALL", "action": "...", "payload": ... }` when sending between a unit and the CSMS.
+
 Example:
 
 ```json

@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This plan exists to prevent the project from drifting into an incorrect architecture where all simulator traffic is pushed through a single WebSocket stream or where OCPP communication is handled through REST API endpoints.
+This plan exists to prevent the project from drifting into an incorrect architecture where all simulator traffic is pushed through a single shared WebSocket stream or where OCPP communication is replaced by REST command endpoints.
 
-The simulator must model real OCPP behavior. A charge point communicates with the central system through its own OCPP WebSocket connection. The web UI and REST API are only control and observation layers. They must not become the primary OCPP message transport.
+The simulator must model real OCPP behavior. Each simulated charge point communicates with the central system through its own OCPP WebSocket connection. The web UI is allowed to act as the control surface for local charge point behavior, but every unit still needs its own OCPP session.
 
 ## Core Rule
 
@@ -16,6 +16,13 @@ There must be a strict separation between:
 - internal event/log streaming plane
 
 These layers can observe or command each other, but they must not be merged.
+
+Current accepted model:
+
+- CP-initiated actions such as plug, unplug, Authorize, StartTransaction, StopTransaction, MeterValues, and StatusNotification are driven from the simulator UI and sent over `GET /api/ws/{chargePointId}`. The API proxies that unit's OCPP frames to `centralSystemUrl/{chargePointId}`. This is the simulated charge point's OCPP session.
+- CSMS-initiated actions such as RemoteStartTransaction enter through the mock CSMS REST API and are sent by the mock CSMS over the target charge point's existing OCPP WebSocket.
+- `/api/realtime` is only for logs, state, and runtime events.
+- Unit ↔ CSMS traffic is raw OCPP-J JSON array frames only. Do not wrap OCPP messages in objects before sending over the OCPP WebSocket.
 
 ## Non-Negotiable Architecture Rules
 
@@ -37,11 +44,31 @@ Incorrect:
 Simulator Backend -> one shared WebSocket -> all charge point messages
 ```
 
-The simulator may run all charge points inside the same backend process, but logically and architecturally each charge point must behave as a separate OCPP client.
+The simulator may run all charge points inside the same backend/browser/API process combination, but logically and architecturally each charge point must behave as a separate OCPP client.
+
+### 1b. OCPP wire messages are raw JSON arrays, never wrappers
+
+Correct OCPP WebSocket traffic:
+
+```json
+[2, "uid-1", "BootNotification", { "chargePointVendor": "Simulator", "chargePointModel": "OCPP-Sim" }]
+```
+
+```json
+[3, "uid-1", { "status": "Accepted", "currentTime": "2026-06-03T12:00:00Z", "interval": 30 }]
+```
+
+Incorrect:
+
+```json
+{ "type": "CALL", "uniqueId": "uid-1", "action": "BootNotification", "payload": { "chargePointVendor": "Simulator" } }
+```
+
+The OCPP socket must not carry DTO envelopes, command wrappers, event wrappers, UI models, or internal simulator models. If a wrapper is useful for UI state, REST responses, logs, or storage, unwrap it before crossing the OCPP transport boundary.
 
 ### 2. REST API must not transport OCPP messages
 
-REST endpoints are allowed for management actions only.
+REST endpoints are allowed for management actions and for test hooks that represent an external actor, especially the mock CSMS API.
 
 Allowed API responsibilities:
 
@@ -50,31 +77,32 @@ Allowed API responsibilities:
 - update charge point configuration
 - start simulated charge point
 - stop simulated charge point
-- trigger user actions
+- create or close a simulated charge point session
 - query current state
 - query stored logs
 - query transaction history
 - query connector status
+- ask the mock CSMS to send a CSMS-initiated OCPP CALL to a connected charge point
 
 Forbidden API responsibilities:
 
-- sending BootNotification directly as an API message
-- sending Heartbeat directly through REST
-- sending StartTransaction through REST as the actual OCPP transport
-- sending MeterValues through REST as the actual OCPP transport
-- sending StopTransaction through REST as the actual OCPP transport
+- replacing a charge point's OCPP WebSocket with REST for BootNotification
+- replacing a charge point's OCPP WebSocket with REST for Heartbeat
+- replacing a charge point's OCPP WebSocket with REST for StartTransaction
+- replacing a charge point's OCPP WebSocket with REST for MeterValues
+- replacing a charge point's OCPP WebSocket with REST for StopTransaction
 - routing Central System commands through generic API message passing
 
-The API may trigger an internal simulator action. The resulting OCPP message must still be sent by the charge point over its own OCPP WebSocket connection.
+The API may proxy a unit-specific OCPP WebSocket or expose mock-CSMS command endpoints. The resulting OCPP message must still travel over the target charge point's OCPP WebSocket connection.
 
 Example:
 
 ```text
-POST /charge-points/CP-001/actions/plug-in
+UI opens /api/ws/CP-001
         ↓
-Simulator updates connector state
+API proxies that session to ws://central-system/ocpp/CP-001
         ↓
-CP-001 sends StatusNotification over its own OCPP WebSocket
+UI plug-in action causes CP-001 to send StatusNotification over that OCPP socket
 ```
 
 Not:
@@ -85,11 +113,11 @@ POST /ocpp/send
 API sends StatusNotification directly
 ```
 
-### 3. UI WebSocket is only for observation
+### 3. UI realtime WebSocket is only for observation
 
-The frontend may use a WebSocket or Server-Sent Events connection to observe logs, state changes, and live events.
+The frontend may use `/api/realtime` to observe logs, state changes, and live events.
 
-This socket is not an OCPP socket.
+This realtime socket is not an OCPP socket. It is separate from `/api/ws/{chargePointId}`, which is the unit-specific OCPP session proxy.
 
 Correct UI stream usage:
 
@@ -97,10 +125,10 @@ Correct UI stream usage:
 Backend -> UI WebSocket -> logs, state updates, transaction updates, connector updates
 ```
 
-Incorrect UI stream usage:
+Incorrect realtime stream usage:
 
 ```text
-UI WebSocket -> carries all OCPP messages for all charge points
+/api/realtime -> carries OCPP messages for all charge points
 ```
 
 The UI stream must be treated as a read-model/event-feed layer.
@@ -122,7 +150,7 @@ If the Central System sends commands such as:
 
 They must arrive through the specific charge point WebSocket connection.
 
-The simulator must not fake these as API calls unless the feature is explicitly a manual test helper. Even then, the helper must trigger the same internal command handler used by the OCPP socket path.
+The simulator must not fake these as local UI actions. The accepted test helper is the mock CSMS REST API: a caller asks the mock CSMS to send `RemoteStartTransaction`, then the mock CSMS sends the OCPP CALL over the charge point's WebSocket.
 
 ### 5. One internal event bus is allowed, but it is not the transport boundary
 
@@ -146,11 +174,11 @@ InternalEventBus replaces OCPP WebSocket communication
 
 The event bus is for internal decoupling only. It must not erase the distinction between OCPP sockets, API commands, and UI streams.
 
-## Required Backend Modules
+## Required Simulator Modules
 
-### ChargePoint Runtime
+### Charge Point Session
 
-Responsible for one simulated charge point instance.
+Responsible for one simulated charge point session.
 
 Responsibilities:
 
@@ -167,12 +195,12 @@ Responsibilities:
 Suggested name:
 
 ```text
-ChargePointRuntime
+ChargePointSession
 ```
 
 ### OCPP Connection
 
-Responsible only for WebSocket protocol handling.
+Responsible only for WebSocket protocol handling for one charge point.
 
 Responsibilities:
 
@@ -193,7 +221,7 @@ Suggested name:
 OcppConnection
 ```
 
-There must be one connection instance per running simulated charge point.
+There must be one connection instance per running simulated charge point. In the current implementation this can be the `/api/ws/{chargePointId}` proxy session used by the UI-controlled simulator.
 
 ### OCPP Message Router
 
@@ -217,7 +245,7 @@ Suggested name:
 OcppMessageRouter
 ```
 
-This router must be scoped to a charge point runtime or receive the charge point runtime context explicitly.
+This router must be scoped to a charge point session or receive the charge point context explicitly.
 
 ### Connector State Machine
 
@@ -242,9 +270,9 @@ Preferred flow:
 ```text
 ConnectorStateMachine changes state
         ↓
-ChargePointRuntime observes change
+The simulated charge point session observes change
         ↓
-ChargePointRuntime sends StatusNotification over OCPP socket
+That charge point sends StatusNotification over its own OCPP socket
 ```
 
 ### Transaction Engine

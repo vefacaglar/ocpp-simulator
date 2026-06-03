@@ -14,19 +14,20 @@ Available → [Start TX butonu] → StatusNotification(Preparing) + StartTransac
 - `Authorize` mesajı hiç gönderilmiyor.
 - plan.md §7b'deki ConnectorStateMachine atlanıyor.
 
-### 1.2 Mevcut Mimarideki İki Yol
+### 1.2 Kabul Edilen İletişim Modeli
 
 | Katman | Kim kullanıyor | Ne yapıyor |
 |--------|---------------|------------|
-| Proxy WS (`/api/ws/{cpId}`) | Frontend | OCPP frame'leri doğrudan CSMS'e gönderir |
-| Runtime OCPP Client | Backend | `Runtime.StartTransaction()` ile CSMS'e gönderir |
+| OCPP session proxy (`/api/ws/{cpId}`) | Frontend-controlled simulated charge point | İlgili unit için ayrı OCPP WebSocket session açar ve frame'leri `centralSystemUrl/{cpId}` adresine taşır |
+| UI realtime (`/api/realtime`) | Frontend | Log/state/event izler; OCPP transport değildir |
+| Mock CSMS REST API | Dış test istemcisi / UI dev tool | CSMS-initiated CALL üretir ve bağlı CP'nin OCPP socket'inden gönderir |
 
-Frontend şu an proxy WS üzerinden BootNotification, Heartbeat, StatusNotification, StartTransaction, StopTransaction, MeterValues gönderiyor. Backend runtime'ın kendi OCPP client'ı var ama CP-initiated akışlarda kullanılmıyor (sadece CSMS-initiated mesajlar için).
+Frontend şu an proxy WS üzerinden BootNotification, Heartbeat, StatusNotification, Authorize, StartTransaction, StopTransaction, MeterValues gönderiyor. Bu proje için bu kabul edilen CP-initiated davranıştır: UI cihaz davranışını kontrol eder, ama her unit yine kendi OCPP WebSocket session'ı üzerinden CSMS ile konuşur. Bu akış runtime command API'lerine taşınmamalı.
 
-### 1.3 Karar: Hibrit Yaklaşım
+### 1.3 Karar: Unit Başına OCPP Session + CSMS-Initiated API
 
-- **Authorize akışı (CP-initiated):** Frontend proxy WS üzerinden gönderir.
-- **RemoteStart/RemoteStop (CSMS-initiated):** Backend runtime API üzerinden işlenir.
+- **Local/CP-initiated akışlar:** UI, seçili unit'in `/api/ws/{cpId}` OCPP session'ını kullanır. Plug/Unplug/Authorize/Start/Stop/MeterValues/StatusNotification bu session'dan gider.
+- **RemoteStart/RemoteStop (CSMS-initiated):** Dışarıdan istek mock CSMS API'sine gelir; mock CSMS hedef CP'nin mevcut OCPP socket'i üzerinden `RemoteStartTransaction` / `RemoteStopTransaction` CALL gönderir.
 - **DB persistansı:** Bu faz kapsamında değil (frontend in-memory state yeterli).
 
 ---
@@ -59,7 +60,7 @@ Available ──Disable──> Unavailable ──Enable──> Available
 
 ### 2.3 İki Başlatma Akışı
 
-**Akış A — Yerel Yetkilendirme (CP-initiated, proxy WS):**
+**Akış A — Yerel Yetkilendirme (CP-initiated, unit OCPP session):**
 ```
 [Plug In]    CP → StatusNotification(connectorId, Preparing)     ← CS {}
 [Authorize]  CP → Authorize(idTag)                               ← CS {idTagInfo: Accepted}
@@ -71,7 +72,7 @@ Available ──Disable──> Unavailable ──Enable──> Available
 [Unplug]     CP → StatusNotification(connectorId, Available)      ← CS {}
 ```
 
-**Akış B — Uzaktan Başlatma (CSMS-initiated, backend API):**
+**Akış B — Uzaktan Başlatma (CSMS-initiated, mock CSMS API):**
 ```
 [Plug In]    CP → StatusNotification(connectorId, Preparing)     ← CS {}
              CS → RemoteStartTransaction(idTag, connectorId)     → CP {status: Accepted}

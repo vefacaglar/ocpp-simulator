@@ -10,6 +10,7 @@ The authoritative design lives in [`plan.md`](plan.md). Read it before non-trivi
 
 - Wire payloads are spec-exact: field names/casing (`chargePointVendor`, `idTagInfo`, `meterStart`), types, required/optional, value ranges, enum strings all match the official JSON schema character-for-character.
 - OCPP-J framing exactly: `[2, uniqueId, action, payload]` (CALL), `[3, uniqueId, payload]` (CALLRESULT), `[4, uniqueId, errorCode, errorDescription, errorDetails]` (CALLERROR). Standard error-code set only.
+- **Never wrap OCPP wire messages.** Communication between a simulated unit and the CSMS must be raw OCPP-J JSON array frames only. Do not convert them into wrapper objects such as `{ "type": "CALL", "action": "...", "payload": ... }`, DTO envelopes, command models, or localized/internal shapes on the wire.
 - WebSocket subprotocol is the standard one (`ocpp1.6`, `ocpp2.0.1`).
 - **Internal models never leak to the wire.** The generic domain model (transaction GUID + `numericId` dual identity, `ConnectorStateMachine`, runtime events) is internal only. The version `codec` is the single boundary that translates internal state ↔ spec-exact wire payloads.
 - The mock CSMS (`apps/csms`) is also bound by this: it may choose *which* valid response to send, but every response must be valid OCPP.
@@ -19,9 +20,14 @@ If a value isn't defined by the OCPP spec, it must not appear in an OCPP message
 
 ## Architecture
 
-Two WebSocket layers — keep them separate:
-1. **Go simulator → OCPP Central System** (OCPP protocol traffic, one client connection per charge point).
-2. **Vue client → Go API** (`/api/realtime`, live logs/state).
+This is an **OCPP simulator**, not a generic web app. The browser is a control surface for simulated charge point behavior.
+
+Keep these communication paths separate:
+1. **Charge point OCPP session → Central System**: one OCPP WebSocket session per simulated unit. In the current UI-driven CP-initiated flow, the Vue client opens `GET /api/ws/{chargePointId}` and the API proxies that exact unit's OCPP frames to `centralSystemUrl/{chargePointId}`. This is still one OCPP connection per charge point; it must never become one shared socket for all units.
+2. **Vue client → Go API realtime**: `/api/realtime` is only for live logs/state/events. It is not a replacement for the OCPP socket.
+3. **External/test client → mock CSMS API**: CSMS-initiated commands such as `RemoteStartTransaction` enter through `apps/csms` REST endpoints, then the mock CSMS sends the OCPP CALL over the target charge point's existing OCPP WebSocket.
+
+Local charge point actions such as plug/unplug, Authorize, StartTransaction, StopTransaction, MeterValues, and StatusNotification must be emitted by that simulated charge point over its own OCPP WebSocket. Do not reroute those actions through generic runtime command APIs as the primary behavior.
 
 Runtime vs. persistence: active connections, timers, loops, and transaction state live **in memory**; SQLite stores config + history. SQLite is not the source of truth for live runtime state.
 
@@ -45,21 +51,22 @@ plan.md             # Full architecture & development plan (authoritative)
 ## Dev commands
 
 ```
-pnpm install            # install JS deps
-pnpm dev                # turbo dev (web + api)
-pnpm dev:api            # Go API only
-pnpm dev:web            # Vue only
-pnpm dev:csms           # mock Central System
-go build ./...          # build all Go modules (run from repo root via go.work)
-go test ./...           # run Go tests (apps/api, apps/csms, packages/ocpp-schemas)
+pnpm install                              # install JS deps
+pnpm dev                                  # turbo dev (web + api)
+pnpm dev:api                              # Go API only
+pnpm dev:web                              # Vue only
+pnpm dev:csms                             # mock Central System
+cd apps/api && go test ./...
+cd apps/csms && go test ./...
+cd packages/ocpp-schemas && go test ./...
 ```
 
-Default ports/URLs: API/UI WS `ws://localhost:7070/api/realtime`; mock CSMS `ws://localhost:8080/ocpp/{chargePointId}`.
+Default ports/URLs: UI realtime `ws://localhost:7070/api/realtime`; UI-controlled OCPP session `ws://localhost:7070/api/ws/{chargePointId}`; mock CSMS `ws://localhost:8080/ocpp/{chargePointId}`.
 
 ## Conventions
 
 - **Backend stack**: Go, simple HTTP router, sqlc/lightweight DB layer, goose/golang-migrate migrations, gorilla or nhooyr WebSocket. Keep the simulator runtime independent of the HTTP framework and OCPP independent of persistence.
-- **Frontend stack**: Vue 3, Vite, TS, Pinia, Vue Router, native WebSocket. REST = command/query layer; WebSocket = live event layer. The dashboard is a "control room", not a generic CRUD panel.
+- **Frontend stack**: Vue 3, Vite, TS, Pinia, Vue Router, native WebSocket. The dashboard is a simulator control room. For CP-initiated behavior it may drive the selected unit's OCPP session via `/api/ws/{chargePointId}`; `/api/realtime` remains observation-only.
 - **Naming** (`plan.md` §20): use specific names — `ChargePointInstance`, `ChargePointRegistry`, `OcppWebSocketClient`, `ConnectorStateMachine`, `MeterValueGenerator`, `RealtimeHub`, `RuntimeEventBus`, `ProtocolFactory`, `PendingCallRegistry`. Avoid `Manager`/`Helper`/`Util`/`Processor`.
 - **Errors are visible in the UI** (`plan.md` §18): clear API error + `runtime.error` realtime event + persisted runtime event when useful.
 - **Two log kinds** kept conceptually separate (`plan.md` §19): OCPP message logs vs. runtime events.

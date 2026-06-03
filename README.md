@@ -37,9 +37,24 @@ MQTT payloads are raw OCPP-J JSON array frames only. `chargePointId` and directi
 
 ## Quick Start
 
+Local dev (current combined services):
+
 ```bash
 pnpm install
 make dev
+```
+
+Local v4.3 stack via Docker Compose (6 services + optional csms profile):
+
+```bash
+docker compose up -d --build
+# UI:       http://localhost:5173
+# API:      http://localhost:7070
+# Gateway:  ws://localhost:7080/ws/{chargePointId}
+# Core:     http://localhost:7090
+# Processor health: http://localhost:7091
+# MQTT:     tcp://localhost:1883
+docker compose --profile csms up csms -d  # optional mock CSMS on :8080
 ```
 
 Current `make dev` first frees ports `7070`, `8080`, `5173` (via `make kill-ports`) and then starts the current combined dev services in parallel:

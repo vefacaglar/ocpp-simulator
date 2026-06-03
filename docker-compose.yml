@@ -1,0 +1,144 @@
+# Docker Compose for the local OCPP simulator v4.3 stack.
+#
+# Services (in dependency order):
+#   mqtt             local Mosquitto broker
+#   ocpp-core        canonical log + transactions + business
+#   message-processor CP→server response producer
+#   ocpp-gateway     dumb WebSocket↔MQTT bridge
+#   simulator-api    UI management API
+#   web              Vue UI (nginx serving Vite build)
+#
+# Optional profile (started with `docker compose --profile csms up`):
+#   csms             mock OCPP Central System (standalone test server)
+#
+# Boundary invariants enforced here:
+#   - simulator-api does NOT depend on mqtt. No MQTT_BROKER_URL env,
+#     no depends_on. OCPP frame transport is gateway's job.
+#   - ocpp-gateway, message-processor, ocpp-core depend on mqtt.
+#   - web depends on simulator-api only.
+#   - Each backend gets its own DB volume; ocpp-simulator.db and
+#     ocpp-core.db never share a path.
+
+name: ocpp-simulator
+
+services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: ocpp-mqtt
+    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+    volumes:
+      - ./docker/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    ports:
+      - "1883:1883"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-t", "ocpp/health", "-m", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  ocpp-core:
+    build:
+      context: .
+      dockerfile: apps/ocpp-core/Dockerfile
+    image: ocpp-core:local
+    container_name: ocpp-core
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    environment:
+      OCPP_CORE_DB: /data/ocpp-core.db
+      MQTT_BROKER_URL: tcp://mqtt:1883
+      MQTT_CLIENT_ID: ocpp-core
+      HTTP_ADDR: ":7090"
+    volumes:
+      - core-data:/data
+    ports:
+      - "7090:7090"
+    restart: unless-stopped
+
+  message-processor:
+    build:
+      context: .
+      dockerfile: apps/message-processor/Dockerfile
+    image: message-processor:local
+    container_name: message-processor
+    depends_on:
+      mqtt:
+        condition: service_healthy
+      ocpp-core:
+        condition: service_started
+    environment:
+      MQTT_BROKER_URL: tcp://mqtt:1883
+      MQTT_CLIENT_ID: message-processor
+      OCPP_CORE_URL: http://ocpp-core:7090
+      HEALTH_ADDR: ":7091"
+    ports:
+      - "7091:7091"
+    restart: unless-stopped
+
+  ocpp-gateway:
+    build:
+      context: .
+      dockerfile: apps/ocpp-gateway/Dockerfile
+    image: ocpp-gateway:local
+    container_name: ocpp-gateway
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    environment:
+      GATEWAY_ADDR: ":7080"
+      MQTT_BROKER_URL: tcp://mqtt:1883
+      MQTT_CLIENT_ID: ocpp-gateway
+    ports:
+      - "7080:7080"
+    restart: unless-stopped
+
+  simulator-api:
+    build:
+      context: .
+      dockerfile: apps/simulator-api/Dockerfile
+    image: ocpp-simulator-api:local
+    container_name: simulator-api
+    environment:
+      # The simulator-api config loader reads OCPP_SIMULATOR_DB (or
+      # its default) and a port env. Adjust as needed.
+      OCPP_SIMULATOR_DB: /data/ocpp-simulator.db
+      PORT: "7070"
+    volumes:
+      - simulator-data:/data
+    ports:
+      - "7070:7070"
+    restart: unless-stopped
+    # Deliberately NO depends_on: mqtt. simulator-api must remain
+    # ignorant of the OCPP transport.
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: ocpp-web:local
+    container_name: ocpp-web
+    depends_on:
+      - simulator-api
+    ports:
+      - "5173:80"
+    restart: unless-stopped
+
+  # Optional: legacy mock CSMS for end-to-end testing without the
+  # full v4.3 stack. Started explicitly:
+  #   docker compose --profile csms up csms
+  csms:
+    profiles: ["csms"]
+    build:
+      context: .
+      dockerfile: apps/csms/Dockerfile
+    image: ocpp-csms:local
+    container_name: ocpp-csms
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  simulator-data:
+  core-data:

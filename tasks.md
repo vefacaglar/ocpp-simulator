@@ -169,10 +169,11 @@ Next available: **All tasks complete**.
 - [x] **T27 fix — gatewayClient WebSocket subprotocol handshake** 🔧
   `new WebSocket(url)` çağrısı `Sec-WebSocket-Protocol: ocpp1.6` (veya `ocpp2.0.1`) göndermiyordu — AGENTS.md §2b ihlali. `GatewayClientOptions`'a `ocppVersion` eklendi; `ocppSubprotocol(version)` helper'ı versiyonu OCPP subprotocol token'ına map eder (`'1.6J'|'1.6' → 'ocpp1.6'`, `'2.0.1' → 'ocpp2.0.1'`, unknown → `''`). `connectChargePoint` async yapıldı, `await selectChargePoint(cpId)` ile CP'nin versiyonu bağlantı öncesi okunuyor; detail yüklenmediyse '1.6J' fallback. Build yeşil.
 
-- [ ] **T28 — Add MQTT + Docker Compose local orchestration** 🔧🛰️
+- [x] **T28 — Add MQTT + Docker Compose local orchestration** 🔧🛰️
   Add local MQTT broker config and Docker Compose for `mqtt`, `simulator-api`, `ocpp-gateway`, `message-processor`, `ocpp-core`, `web`, and optional `csms`. Service Dockerfiles/build targets remain service-scoped.
   _Acceptance:_ `docker compose up` starts the target services; MQTT topics carry raw OCPP arrays with no wrapper payloads.
   _Blocked by:_ T23, T24, T25, T26
+  _Notes:_ 6 servis + opsiyonel csms profili. Her backend kendi modül dizininden build edilir (service-scoped Dockerfile'lar, distroless runtime). mqtt: eclipse-mosquitto:2 + `docker/mqtt/mosquitto.conf` (anonymous, no payload transform, `ocpp/+/in` `ocpp/+/out` için taşıma). simulator-api: GO DB `/data/ocpp-simulator.db`, port 7070, **deliberately NO `depends_on: mqtt`** (sınır korunmuş). ocpp-gateway: mqtt'ye bağımlı, port 7080. message-processor: mqtt + ocpp-core'a bağımlı, port 7091 (health). ocpp-core: mqtt'ye bağımlı, `/data/ocpp-core.db` ayrı volume, port 7090. web: nginx multi-stage, pnpm 9.15.4 (Node 20 uyumu), `/api` ve `/ws` reverse-proxy. `csms` `profiles: ["csms"]` ile ayrı tutuldu. 6 image build edildi ve `docker compose up` ile uçtan uca doğrulandı: simulator-api CP oluşturma + connector ekleme, ocpp-core StartTransaction (transactionId=1, counter initialized), CSMS-init RemoteStartTransaction `ocpp/CP-DOCKER-1/out`'a publish.
 
 - [ ] **T29 — End-to-end v4.3 verification and docs sync** 🔧🛰️
   Verify CP create → boot → start transaction → meter values → stop transaction. Confirm raw `ocpp/{cpId}/in` and `ocpp/{cpId}/out` frames, canonical `ocpp-core` logs, processor stdout audit, UI realtime events, and module-level tests. Keep `AGENTS.md`, `CLAUDE.md`, `plan.md`, `README.md`, `OCPP_SIMULATOR_COMMUNICATION_WORK_PLAN.md`, and `tasks.md` synchronized.

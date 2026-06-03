@@ -26,14 +26,14 @@ The intended final form is a developer tool that can be started locally, opened 
 
 This is an OCPP simulator first. The web UI is the control surface for simulated charge point behavior; it is not the product's architectural center. Every simulated unit must behave as its own charge point with its own OCPP WebSocket session.
 
-The target architecture is event-driven and service-split:
+The target architecture is event-driven and service-split. `nextplan.md` is the current migration source for this split.
 
 ```txt
 Web UI
   -> simulator-api
   -> simulator config DB
 
-Charge Point
+Vue per-CP simulator
   -> WebSocket
   -> ocpp-gateway
   -> MQTT ocpp/{chargePointId}/in
@@ -50,7 +50,13 @@ MQTT ocpp/{chargePointId}/in and /out
 
 `simulator-api` owns UI-facing simulator management such as charge point and connector create/delete/list. It is independent from OCPP message processing and must not generate OCPP wire frames.
 
-`ocpp-gateway` owns WebSocket connections only. `message-processor` owns MQTT consumption, OCPP frame routing, and response publication. `ocpp-core` owns persistence and business state; first it logs raw inbound/outbound messages, later it owns transactions, connector state, authorization decisions, remote command APIs, and session history.
+`ocpp-gateway` is a dumb WebSocket edge and MQTT bridge. It owns connection lifecycle only; it does not own connector state machines, meter generators, transactions, persistence, or business decisions.
+
+`message-processor` consumes `ocpp/+/in`, responds to supported CP-to-server OCPP 1.6J CALLs, calls `ocpp-core` for business decisions, and publishes raw CALLRESULT/CALLERROR frames to `ocpp/{chargePointId}/out`. It has no DB and only writes processor audit events to stdout/log.
+
+`ocpp-core` owns canonical raw OCPP logs and business state. It subscribes directly to raw `ocpp/+/in` and `ocpp/+/out` as the source of truth, persists `transactions`, `ocpp_message_logs`, and `runtime_events`, answers message-processor business callbacks, creates StartTransaction UUID/numeric IDs, initializes numeric counters from DB `MAX(numeric_id)`, and publishes CSMS-initiated CALLs to `ocpp/{chargePointId}/out`.
+
+`web` owns local per-charge-point simulation state: connector state, meter generation, active local transaction holder, pending-call correlation, and one WebSocket per simulated CP to `ocpp-gateway`. Browser refresh losing this local CP state is an accepted local-simulator tradeoff.
 
 ---
 
@@ -179,13 +185,14 @@ ocpp-simulator/
 ├─ apps/
 │  ├─ api/              # Current Go API + simulator runtime
 │  ├─ simulator-api/    # Target: UI management API, no OCPP wire messages
-│  ├─ ocpp-gateway/     # Target: WebSocket edge, no business
-│  ├─ message-processor/ # Target: MQTT consumer/router and response publisher
-│  ├─ ocpp-core/        # Target: DB + business owner; starts with message logs
-│  ├─ web/              # Vue client
-│  └─ csms/             # Go mock OCPP Central System (test server)
+│  ├─ ocpp-gateway/     # Target: dumb WebSocket edge and MQTT bridge
+│  ├─ message-processor/ # Target: response producer + stdout audit
+│  ├─ ocpp-core/        # Target: canonical logs + transactions/business
+│  ├─ web/              # Vue client + per-CP local OCPP simulation
+│  └─ csms/             # Optional legacy/mock Central System
 │
 ├─ packages/
+│  ├─ ocpp-protocol/    # Target: public OCPP codec/message/protocol package
 │  ├─ ocpp-schemas/     # Go module: official OCPP JSON schemas (single source of truth) + embed + validator
 │  ├─ shared/           # Generated TypeScript API client or shared types
 │  └─ config/           # Shared frontend config if needed
@@ -229,6 +236,7 @@ Preferred direction:
 - May expose read models needed by the dashboard.
 - Does not parse, produce, wrap, or route OCPP wire frames.
 - Does not own OCPP transaction, authorization, or connector business decisions.
+- Does not call other backend services with OCPP payloads.
 
 `ocpp-gateway`:
 
@@ -236,22 +244,38 @@ Preferred direction:
 - Maintains one live connection per connected charge point.
 - Publishes inbound raw OCPP frames to `ocpp/{chargePointId}/in`.
 - Subscribes to `ocpp/{chargePointId}/out` and writes each raw OCPP frame to the matching charge point WebSocket.
-- Does not make business decisions and does not wrap OCPP payloads.
+- Handles only connection lifecycle concerns such as ping/pong, close, and reconnect visibility.
+- Does not make business decisions, wrap OCPP payloads, write a database, or keep connector state machines, meter generators, or transactions.
 
 `message-processor`:
 
 - Subscribes to `ocpp/+/in`.
 - Parses raw OCPP-J array frames only enough to identify message type, unique ID, action, and payload.
-- Dispatches to action handlers.
-- Publishes raw OCPP-J response frames to `ocpp/{chargePointId}/out`.
-- In early phases it may produce happy-path responses itself. As `ocpp-core` matures, business decisions should move to `ocpp-core`.
+- Produces responses only for CP-to-server supported OCPP 1.6J CALLs.
+- Calls `ocpp-core` over internal HTTP for business decisions such as Authorize, StartTransaction, and StopTransaction.
+- Publishes raw OCPP-J CALLRESULT/CALLERROR frames to `ocpp/{chargePointId}/out`.
+- Writes consume/publish audit events to stdout/log only.
+- Does not write a DB, normalize logs into persistence, produce CSMS-initiated CALLs, or respond to CP-to-server CALLRESULT/CALLERROR.
 
 `ocpp-core`:
 
 - Owns its own database.
-- First phase: subscribes to inbound/outbound MQTT topics and persists raw OCPP message logs.
-- Later phases: owns transaction state, connector state, authorization decisions, session history, remote command APIs, and business rules.
+- Subscribes to raw `ocpp/+/in` and `ocpp/+/out` topics and persists canonical OCPP message logs.
+- Owns `transactions`, `ocpp_message_logs`, and `runtime_events`.
+- Answers message-processor business callbacks.
+- Creates StartTransaction internal UUIDs and OCPP 1.6 numeric transaction IDs.
+- Initializes the transaction numeric counter from `SELECT COALESCE(MAX(numeric_id), 0) FROM transactions` at startup.
+- Publishes CSMS-initiated CALLs such as RemoteStart, Reset, ChangeConfiguration, GetConfiguration, TriggerMessage, ChangeAvailability, and UnlockConnector to `ocpp/{chargePointId}/out`.
 - Does not put internal business models on the OCPP wire.
+- Does not open OCPP WebSocket connections or consume message-processor stdout audit logs.
+
+`web`:
+
+- Owns UI and local per-CP simulation behavior.
+- Opens one WebSocket per simulated charge point to `ocpp-gateway`.
+- Keeps local connector state, meter generation, active transaction holder state, and pending-call correlation.
+- Produces and consumes only raw OCPP-J array frames on CP WebSockets.
+- Accepts browser refresh local state loss as a current local-simulator tradeoff.
 
 MQTT topic convention:
 
@@ -277,8 +301,22 @@ Docker Compose target:
 - `message-processor`: MQTT consumer/router, depends on `mqtt`.
 - `ocpp-core`: DB/business service, depends on `mqtt`.
 - `web`: Vue UI, talks to `simulator-api` and realtime/read APIs.
+- Optional `csms`: legacy/mock Central System profile, not required for the target MQTT-centered main flow.
 
 Each backend service should have its own Dockerfile or build target. Compose is for local development and repeatable demos; it should not change the OCPP wire contract.
+
+StartTransaction business flow:
+
+```txt
+Vue CP simulator -> ocpp-gateway -> MQTT ocpp/{chargePointId}/in
+message-processor parses StartTransaction.req
+message-processor -> ocpp-core POST /internal/transactions/start
+ocpp-core creates transaction UUID + restart-safe numeric_id
+message-processor publishes [3, uniqueId, { transactionId, idTagInfo }] to ocpp/{chargePointId}/out
+ocpp-gateway writes CALLRESULT to the matching CP WebSocket
+```
+
+Canonical logging rule: `ocpp-core` writes `ocpp_message_logs` from raw `ocpp/+/in` and `ocpp/+/out` subscriptions. `message-processor` audit logs are stdout/debug only and must not become the canonical OCPP message source.
 
 ### 5.3 Frontend
 
@@ -1613,7 +1651,7 @@ Acceptance criteria:
 - CALL / CALLRESULT / CALLERROR encode and decode correctly and round-trip.
 - Responses are matched by unique ID; StartTransaction.conf assigns `numeric_id`.
 - Sent and received messages are logged.
-- `cd apps/api && go test ./...` and `cd packages/ocpp-schemas && go test ./...` pass, including all tests above.
+- Protocol tests pass from their module directories: `cd packages/ocpp-protocol && go test ./...` and `cd packages/ocpp-schemas && go test ./...`. In the current pre-split code, the equivalent legacy protocol tests may still run under `apps/api` until T22 extracts `packages/ocpp-protocol`.
 - A deliberately malformed or non-spec payload is rejected by the validator in tests (proves the guard works).
 
 ### Phase 5: OCPP WebSocket Client

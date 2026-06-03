@@ -18,10 +18,11 @@ Web UI -> simulator-api -> simulator config DB
 Charge Point WS -> ocpp-gateway -> MQTT ocpp/{chargePointId}/in
 MQTT ocpp/{chargePointId}/in -> message-processor -> MQTT ocpp/{chargePointId}/out
 MQTT ocpp/{chargePointId}/out -> ocpp-gateway -> Charge Point WS
-MQTT in/out topics -> ocpp-core -> DB/logs now, business state later
+MQTT in/out topics -> ocpp-core -> canonical DB logs + transactions/business
 ```
 
 MQTT payloads are raw OCPP-J JSON array frames only. `chargePointId` and direction live in the topic, not in a wrapper payload.
+`message-processor` has no DB; it writes consume/publish audit events to stdout/log only. Canonical message logs come from `ocpp-core` subscribing directly to raw `ocpp/+/in` and `ocpp/+/out`.
 
 ## Prerequisites
 
@@ -77,8 +78,12 @@ make kill-ports
 ### Go Build & Test
 
 ```bash
-cd apps/api && go test ./...
+cd apps/simulator-api && go test ./...
+cd apps/ocpp-gateway && go test ./...
+cd apps/message-processor && go test ./...
+cd apps/ocpp-core && go test ./...
 cd apps/csms && go test ./...
+cd packages/ocpp-protocol && go test ./...
 cd packages/ocpp-schemas && go test ./...
 ```
 
@@ -87,13 +92,14 @@ cd packages/ocpp-schemas && go test ./...
 ```
 apps/
   api/              # Current Go API + simulator runtime; will split into target services
-  simulator-api/    # Target UI management API for charge point/connector config
-  ocpp-gateway/     # Target WebSocket edge and MQTT bridge
-  message-processor/ # Target MQTT OCPP router/response publisher
-  ocpp-core/        # Target DB/business service; logs first
-  web/              # Vue 3 dashboard
-  csms/             # Mock OCPP Central System
+  simulator-api/    # Target UI management API/config DB/realtime
+  ocpp-gateway/     # Target dumb WebSocket edge and MQTT bridge
+  message-processor/ # Target CP-to-server response producer + stdout audit
+  ocpp-core/        # Target canonical logs + transactions/business
+  web/              # Vue 3 dashboard + per-CP OCPP simulation
+  csms/             # Optional legacy/mock Central System
 packages/
+  ocpp-protocol/    # Target public OCPP codec/message/protocol package
   ocpp-schemas/     # Official OCPP JSON schemas + validator
   shared/           # Shared TypeScript types
   config/           # Shared frontend config

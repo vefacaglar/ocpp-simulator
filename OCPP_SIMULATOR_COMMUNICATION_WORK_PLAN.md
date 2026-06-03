@@ -28,8 +28,9 @@ Target service split:
 
 - `simulator-api`: UI management API. It owns simulator configuration such as charge point and connector create/delete/list. It is independent from OCPP message processing and must not generate OCPP frames.
 - `ocpp-gateway`: WebSocket edge. It accepts charge point connections, publishes inbound raw OCPP frames to MQTT, subscribes to outbound MQTT topics, and writes outbound raw frames to the correct WebSocket.
-- `message-processor`: MQTT consumer/router. It reads inbound raw frames, routes by OCPP message type/action, and publishes raw response frames.
-- `ocpp-core`: DB and business owner. First phase is message logging only; later it owns transaction state, connector state, authorization, remote commands, and session history.
+- `message-processor`: response producer. It reads inbound raw frames from `ocpp/+/in`, responds only to supported CP-to-server OCPP 1.6J CALLs, calls `ocpp-core` for business decisions, publishes raw CALLRESULT/CALLERROR frames, and writes consume/publish audit events to stdout/log only.
+- `ocpp-core`: canonical log and business owner. It persists raw `ocpp/+/in` and `ocpp/+/out` topic messages as the source of truth, owns transactions/runtime events, answers message-processor callbacks, initializes numeric transaction IDs from DB `MAX(numeric_id)`, and publishes CSMS-initiated CALLs to `ocpp/{chargePointId}/out`.
+- `web`: Vue UI plus per-CP local OCPP simulation. It opens one WebSocket per simulated CP to `ocpp-gateway`, owns local connector state, meter generation, transaction holder state, and accepts browser-refresh state loss as a local-simulator tradeoff.
 
 Target MQTT topics:
 
@@ -222,28 +223,48 @@ Responsibilities:
 
 ### message-processor
 
-The processor consumes inbound OCPP frames from MQTT and produces outbound frames.
+The processor consumes inbound OCPP frames from MQTT and produces outbound responses only for CP-to-server supported OCPP 1.6J CALLs.
 
 Responsibilities:
 
 - Subscribe to `ocpp/+/in`.
 - Parse raw OCPP-J array frames.
-- Route by message type and action.
-- Generate spec-exact CALLRESULT/CALLERROR frames for supported flows.
+- For CP-to-server CALLs, generate spec-exact CALLRESULT/CALLERROR frames for supported flows.
+- Call `ocpp-core` over internal HTTP for business decisions such as Authorize, StartTransaction, and StopTransaction.
 - Publish responses to `ocpp/{chargePointId}/out`.
-- In early phases, produce happy-path responses directly.
-- Later, delegate business decisions to `ocpp-core`.
+- Write consume/publish audit events to stdout/log only; these events are not OCPP wire payloads and may be wrapped.
+- Do not write a DB.
+- Do not produce CSMS-initiated CALLs.
+- Do not respond to CP-to-server CALLRESULT/CALLERROR frames.
 
 ### ocpp-core
 
-The core service owns data and business.
+The core service owns canonical logs, data, and business.
 
 Responsibilities:
 
 - Own its own database.
-- First phase: subscribe to `ocpp/+/in` and `ocpp/+/out`, then persist raw message logs.
-- Later phases: own transaction state, connector state, authorization decisions, session history, and remote command APIs.
+- Subscribe to raw `ocpp/+/in` and `ocpp/+/out`, then persist canonical OCPP message logs.
+- Own `transactions`, `ocpp_message_logs`, and `runtime_events`; there is no `processor_events` table.
+- Answer message-processor business decision callbacks.
+- On startup, initialize the OCPP 1.6 numeric transaction counter with `SELECT COALESCE(MAX(numeric_id), 0) FROM transactions`.
+- Create transaction UUIDs and numeric transaction IDs for StartTransaction.
+- Publish CSMS-initiated CALLs such as RemoteStart, Reset, ChangeConfiguration, GetConfiguration, TriggerMessage, ChangeAvailability, and UnlockConnector to `ocpp/{chargePointId}/out`.
+- Publish UI-ready events to `realtime/{chargePointId}.event`.
 - Never expose internal business models on the OCPP WebSocket or MQTT payload.
+- Never open OCPP WebSocket connections or consume message-processor stdout audit logs.
+
+### web
+
+The Vue app is both the UI and the local per-charge-point simulator.
+
+Responsibilities:
+
+- Open one WebSocket per simulated charge point to `ocpp-gateway`.
+- Keep local connector state, meter generation, transaction holder state, and pending-call correlation.
+- Produce CP-to-server OCPP CALLs as raw OCPP-J arrays.
+- Respond to server-to-CP CALLs with raw OCPP-J CALLRESULT/CALLERROR arrays.
+- Accept browser-refresh state loss as a current local-simulator tradeoff.
 
 ### Docker Compose
 
@@ -260,465 +281,66 @@ Expected services:
 
 The compose setup is orchestration only. It must not introduce wrapper payloads or change the raw OCPP-J frame contract.
 
-### Charge Point Session
+## Required Target Flows
 
-Responsible for one simulated charge point session.
-
-Responsibilities:
-
-- owns charge point identity
-- owns connector collection
-- owns current availability state
-- owns transaction state
-- owns authorization cache if enabled
-- owns OCPP connection lifecycle
-- sends OCPP calls through its own socket
-- receives OCPP calls from Central System through its own socket
-- applies OCPP responses to internal state
-
-Suggested name:
+### StartTransaction
 
 ```text
-ChargePointSession
+Vue CP simulator sends raw [2, uid, "StartTransaction", payload]
+        ↓
+ocpp-gateway publishes unchanged to ocpp/{chargePointId}/in
+        ↓
+message-processor parses and validates StartTransaction.req
+        ↓
+message-processor POSTs /internal/transactions/start to ocpp-core
+        ↓
+ocpp-core creates transaction UUID + restart-safe numeric_id
+        ↓
+message-processor publishes raw [3, uid, { transactionId, idTagInfo }] to ocpp/{chargePointId}/out
+        ↓
+ocpp-gateway writes unchanged to the matching CP WebSocket
 ```
 
-### OCPP Connection
-
-Responsible only for WebSocket protocol handling for one charge point.
-
-Responsibilities:
-
-- connect
-- disconnect
-- reconnect
-- send CALL
-- send CALLRESULT
-- send CALLERROR
-- correlate request/response by unique id
-- handle timeout
-- validate message envelope
-- expose incoming messages to the charge point runtime
-
-Suggested name:
+### CSMS-Initiated RemoteStart
 
 ```text
-OcppConnection
+External test helper or scheduler calls ocpp-core /internal/remote-start
+        ↓
+ocpp-core publishes raw [2, uid, "RemoteStartTransaction", payload] to ocpp/{chargePointId}/out
+        ↓
+ocpp-gateway writes unchanged to the matching CP WebSocket
+        ↓
+Vue CP simulator returns raw [3, uid, { status }] over its CP WebSocket
+        ↓
+ocpp-gateway publishes unchanged to ocpp/{chargePointId}/in
+        ↓
+message-processor parses/audits but does not produce another response
+        ↓
+ocpp-core logs the raw response and updates remote command state if needed
 ```
 
-There must be one connection instance per running simulated charge point. In the current implementation this can be the `/api/ws/{chargePointId}` proxy session used by the UI-controlled simulator.
-
-### OCPP Message Router
-
-Responsible for dispatching incoming OCPP actions to handlers.
-
-Responsibilities:
-
-- route BootNotification response
-- route RemoteStartTransaction
-- route RemoteStopTransaction
-- route Reset
-- route ChangeConfiguration
-- route GetConfiguration
-- route UnlockConnector
-- route TriggerMessage
-- route other supported actions
-
-Suggested name:
+### Canonical Log vs Processor Audit
 
 ```text
-OcppMessageRouter
+Canonical OCPP log:
+ocpp-core subscribes to raw ocpp/+/in and ocpp/+/out -> ocpp_message_logs
+
+Processor audit:
+message-processor stdout/log per consume/publish -> debug only, no DB table
 ```
 
-This router must be scoped to a charge point session or receive the charge point context explicitly.
-
-### Connector State Machine
-
-Responsible for connector-level behavior.
-
-Responsibilities:
-
-- Available
-- Preparing
-- Charging
-- SuspendedEV
-- SuspendedEVSE
-- Finishing
-- Reserved
-- Unavailable
-- Faulted
-
-The connector state machine emits state changes. It does not send OCPP messages directly unless explicitly designed as part of the charge point runtime boundary.
-
-Preferred flow:
-
-```text
-ConnectorStateMachine changes state
-        ↓
-The simulated charge point session observes change
-        ↓
-That charge point sends StatusNotification over its own OCPP socket
-```
-
-### Transaction Engine
-
-Responsible for transaction lifecycle.
-
-Responsibilities:
-
-- prepare transaction
-- start transaction
-- track meter values
-- stop transaction
-- handle idTag
-- handle transactionId from Central System
-- handle local transaction records
-- handle abnormal stop reasons
-
-Preferred flow:
-
-```text
-User/API triggers plug-in or remote start
-        ↓
-ChargePointRuntime validates connector state
-        ↓
-TransactionEngine starts local transaction process
-        ↓
-ChargePointRuntime sends StartTransaction over OCPP socket
-        ↓
-Central System returns transactionId
-        ↓
-TransactionEngine stores transactionId
-```
-
-### API Layer
-
-Responsible for management and manual simulation commands.
-
-Allowed API examples:
-
-```text
-POST /charge-points
-POST /charge-points/{id}/start
-POST /charge-points/{id}/stop
-POST /charge-points/{id}/connectors
-POST /charge-points/{id}/connectors/{connectorId}/plug-in
-POST /charge-points/{id}/connectors/{connectorId}/unplug
-POST /charge-points/{id}/connectors/{connectorId}/fault
-POST /charge-points/{id}/connectors/{connectorId}/recover
-POST /charge-points/{id}/connectors/{connectorId}/start-local-transaction
-POST /charge-points/{id}/connectors/{connectorId}/stop-transaction
-GET /charge-points
-GET /charge-points/{id}
-GET /charge-points/{id}/logs
-GET /charge-points/{id}/transactions
-```
-
-Forbidden API examples:
-
-```text
-POST /ocpp/BootNotification
-POST /ocpp/Heartbeat
-POST /ocpp/StartTransaction
-POST /ocpp/StopTransaction
-POST /ocpp/MeterValues
-POST /ocpp/send
-POST /messages/send
-```
-
-If a generic testing endpoint is temporarily needed, it must be marked as dev-only and must not be used by production simulator flows.
-
-### UI Live Stream
-
-Responsible for frontend observation.
-
-Possible stream events:
-
-```text
-ChargePointStarted
-ChargePointStopped
-OcppConnected
-OcppDisconnected
-OcppMessageSent
-OcppMessageReceived
-ConnectorStatusChanged
-TransactionStarted
-TransactionStopped
-MeterValueGenerated
-ErrorOccurred
-```
-
-The UI stream must be explicitly named so it is not confused with OCPP.
-
-Good names:
-
-```text
-LiveEventHub
-SimulatorEventStream
-LogStream
-RuntimeEventStream
-```
-
-Bad names:
-
-```text
-OcppWebSocket
-MessageSocket
-MainSocket
-GlobalSocket
-```
-
-## Required Runtime Flow Examples
-
-### Boot Flow
-
-```text
-API: POST /charge-points/CP-001/start
-        ↓
-ChargePointRuntime starts
-        ↓
-OcppConnection opens WebSocket to Central System
-        ↓
-ChargePointRuntime sends BootNotification through OcppConnection
-        ↓
-Central System returns BootNotification.conf
-        ↓
-ChargePointRuntime stores registration status and heartbeat interval
-        ↓
-UI receives log/state events through SimulatorEventStream
-```
-
-### Heartbeat Flow
-
-```text
-ChargePointRuntime has accepted BootNotification
-        ↓
-HeartbeatScheduler starts using interval from Central System
-        ↓
-ChargePointRuntime sends Heartbeat over its own OCPP WebSocket
-        ↓
-UI receives log event only
-```
-
-### Local Start Transaction Flow
-
-```text
-API: POST /charge-points/CP-001/connectors/1/start-local-transaction
-        ↓
-ChargePointRuntime checks connector state
-        ↓
-Authorize is sent over CP-001 OCPP WebSocket if required
-        ↓
-StartTransaction is sent over CP-001 OCPP WebSocket
-        ↓
-Central System returns transactionId
-        ↓
-TransactionEngine stores active transaction
-        ↓
-MeterValues scheduler starts
-        ↓
-UI receives state/log updates
-```
-
-### Remote Start Transaction Flow
-
-```text
-Central System sends RemoteStartTransaction to CP-001 WebSocket
-        ↓
-OcppConnection receives CALL
-        ↓
-OcppMessageRouter dispatches to RemoteStartTransaction handler
-        ↓
-ChargePointRuntime validates connector availability
-        ↓
-ChargePointRuntime replies with RemoteStartTransaction.conf
-        ↓
-TransactionEngine starts transaction process
-        ↓
-StartTransaction is sent over CP-001 OCPP WebSocket
-        ↓
-UI receives state/log updates
-```
-
-### Meter Values Flow
-
-```text
-TransactionEngine has active transaction
-        ↓
-MeterValueScheduler generates readings
-        ↓
-ChargePointRuntime sends MeterValues over CP-001 OCPP WebSocket
-        ↓
-UI receives generated meter value as observation event
-```
-
-### Stop Transaction Flow
-
-```text
-API or Central System command triggers stop
-        ↓
-ChargePointRuntime validates active transaction
-        ↓
-TransactionEngine closes local transaction
-        ↓
-ChargePointRuntime sends StopTransaction over CP-001 OCPP WebSocket
-        ↓
-Connector state changes to Finishing or Available
-        ↓
-UI receives updates
-```
-
-## Implementation Phases
-
-### Phase 1 — Lock the communication boundaries
-
-Goal:
-
-Prevent architecture drift before feature implementation continues.
-
-Tasks:
-
-- Create `docs/COMMUNICATION_ARCHITECTURE.md`
-- Add this rule set to the repository
-- Define OCPP connection as a per-charge-point runtime dependency
-- Define API as control plane only
-- Define UI socket as observation plane only
-- Remove or reject any design that introduces a global OCPP WebSocket
-- Remove or reject any design that sends OCPP messages directly through REST
-
-Acceptance criteria:
-
-- No endpoint named `/ocpp/send`
-- No single shared socket responsible for all charge point OCPP traffic
-- Each running charge point has its own OCPP connection instance
-- UI socket does not send OCPP protocol messages
-- API actions trigger simulator behavior, not protocol transport
-
-### Phase 2 — Implement charge point runtime lifecycle
-
-Goal:
-
-Create the runtime object that owns one simulated charge point.
-
-Tasks:
-
-- Implement `ChargePointRuntime`
-- Implement start/stop lifecycle
-- Implement connector collection
-- Implement transaction state holder
-- Implement runtime event emission
-- Implement runtime registry
-
-Acceptance criteria:
-
-- Multiple charge points can run in the same backend process
-- Each charge point can be started and stopped independently
-- Each charge point has isolated connector and transaction state
-- Runtime state can be queried through API
-- Runtime events can be streamed to UI
-
-### Phase 3 — Implement per-charge-point OCPP WebSocket client
-
-Goal:
-
-Make each simulated charge point behave like a real OCPP client.
-
-Tasks:
-
-- Implement `OcppConnection`
-- Add WebSocket connect/disconnect/reconnect logic
-- Add OCPP CALL/CALLRESULT/CALLERROR envelope support
-- Add unique id correlation
-- Add request timeout handling
-- Add incoming message dispatch hook
-
-Acceptance criteria:
-
-- CP-001 and CP-002 can connect to the same Central System independently
-- Messages from CP-001 never use CP-002 connection
-- Responses are correlated to the correct pending request
-- Connection loss affects only the related charge point
-- UI can observe connection state changes
-
-### Phase 4 — Implement OCPP 1.6J core flows
-
-Goal:
-
-Support the essential simulator flows.
-
-Tasks:
-
-- BootNotification
-- Heartbeat
-- StatusNotification
-- Authorize
-- StartTransaction
-- MeterValues
-- StopTransaction
-- RemoteStartTransaction
-- RemoteStopTransaction
-- Reset
-- UnlockConnector
-- ChangeAvailability
-- ChangeConfiguration
-- GetConfiguration
-
-Acceptance criteria:
-
-- BootNotification is sent only over the charge point OCPP socket
-- Heartbeat interval follows Central System response
-- StatusNotification is emitted after connector state changes
-- StartTransaction and StopTransaction use the correct connector and transaction state
-- Remote commands are received from the OCPP socket, not API
-- API can trigger user-like actions that result in OCPP messages
-
-### Phase 5 — Implement UI live observation
-
-Goal:
-
-Give the frontend real-time visibility without turning the UI stream into OCPP transport.
-
-Tasks:
-
-- Implement `SimulatorEventStream`
-- Stream logs
-- Stream charge point state changes
-- Stream connector state changes
-- Stream transaction updates
-- Stream sent/received OCPP message summaries
-- Add filtering by charge point id
-- Add filtering by connector id
-- Add filtering by message type
-
-Acceptance criteria:
-
-- UI can observe all active charge points
-- UI can filter logs per charge point
-- UI stream does not carry command transport responsibility
-- Closing UI does not affect OCPP connections
-- Multiple browser clients can observe the same simulator state
-
-### Phase 6 — Add guardrails for future LLM-generated code
-
-Goal:
-
-Prevent future agents from reintroducing the wrong architecture.
-
-Tasks:
-
-- Add an architecture decision record
-- Add code comments at key boundaries
-- Add tests for per-charge-point connection isolation
-- Add tests preventing REST-based OCPP transport
-- Add naming conventions
-- Add forbidden patterns section to contributor docs
-
-Acceptance criteria:
-
-- A test fails if OCPP messages are routed through REST transport
-- A test fails if multiple charge points share one OCPP connection instance
-- Documentation explicitly says API is not OCPP transport
-- Documentation explicitly says UI WebSocket is not OCPP transport
-- New agents can understand the architecture without guessing
+## Migration Phases
+
+1. Extract `packages/ocpp-protocol` with public `pkg/` packages for codec, message, protocol interfaces, pending calls, v16, and v201 placeholders.
+2. Rename the current combined `apps/api` to `apps/simulator-api` and remove OCPP runtime responsibilities from it.
+3. Create `apps/ocpp-gateway` as a dumb `/ws/{chargePointId}` WebSocket edge and raw MQTT bridge.
+4. Create `apps/message-processor` as the CP-to-server response producer with stdout audit and no DB.
+5. Create `apps/ocpp-core` with `transactions`, `ocpp_message_logs`, and `runtime_events`; no `processor_events`.
+6. Move canonical OCPP logging to `ocpp-core` raw topic subscriptions.
+7. Move StartTransaction transaction UUID/numeric ID generation to `ocpp-core`.
+8. Keep per-CP simulation state in Vue and point each CP WebSocket at `ocpp-gateway`.
+9. Add Docker Compose for `mqtt`, `simulator-api`, `ocpp-gateway`, `message-processor`, `ocpp-core`, `web`, and optional `csms`.
+10. Update docs/tasks and run each Go module's tests from its own directory.
 
 ## Forbidden Patterns
 
@@ -731,72 +353,33 @@ OcppMessageApiController
 GenericOcppSendEndpoint
 AllMessagesHub
 OneSocketForEverything
-FrontendAsOcppProxy
-ApiAsCentralSystemProxy
+ApiAsOcppTransport
+GatewayWithBusinessState
+GatewayTransactionEngine
+ProcessorEventsDatabase
+WrappedOcppMqttPayload
 ```
 
-Do not design flows like:
+Do not design target flows like:
 
 ```text
-UI -> WebSocket -> Backend -> Central System OCPP message
+simulator-api -> OCPP frame
+ocpp-gateway -> transaction/meter/state decision
+message-processor -> DB write
+ocpp-core -> OCPP WebSocket
 ```
 
-unless the UI action is explicitly a management command and the actual OCPP message is sent by the related `ChargePointRuntime`.
-
-Correct:
+Correct target flow:
 
 ```text
-UI -> API command -> ChargePointRuntime -> CP-specific OCPP socket
+Vue CP simulator -> ocpp-gateway -> MQTT ocpp/{chargePointId}/in
+message-processor -> optional ocpp-core callback -> MQTT ocpp/{chargePointId}/out
+ocpp-gateway -> Vue CP simulator
+ocpp-core -> raw topic subscriptions -> canonical DB logs/business
 ```
-
-Incorrect:
-
-```text
-UI -> global WebSocket -> OCPP message
-```
-
-## Naming Rules
-
-Use names that make architectural boundaries obvious.
-
-Preferred:
-
-```text
-OcppConnection
-ChargePointRuntime
-ChargePointRuntimeRegistry
-SimulatorCommandController
-SimulatorEventStream
-RuntimeEventPublisher
-ConnectorStateMachine
-TransactionEngine
-OcppMessageRouter
-```
-
-Avoid:
-
-```text
-MessageService
-SocketService
-WebSocketManager
-CommunicationService
-OcppService
-MainHub
-GlobalHub
-```
-
-Generic names cause LLM agents to merge responsibilities.
 
 ## Agent Instruction
 
-When implementing this project, do not simplify the communication model into one WebSocket or REST-based OCPP messaging.
+When implementing this project, do not simplify the target model into REST-based OCPP messaging or a gateway that owns business state.
 
-This simulator must behave like many independent charge points. Each charge point has its own OCPP WebSocket connection to the Central System. The REST API controls simulator state and user-like actions. The frontend live stream observes logs and runtime events only.
-
-Never send OCPP protocol messages directly through the REST API. Never route all charge point traffic through one shared WebSocket. Never use the UI live stream as the OCPP transport.
-
-If a user action should cause an OCPP message, the API must call the relevant `ChargePointRuntime`, and that runtime must send the OCPP message through its own `OcppConnection`.
-
-If a Central System command is received, it must arrive through the specific charge point's OCPP WebSocket connection and be routed to that charge point runtime.
-
-Architecture correctness is more important than reducing the number of sockets or creating a generic communication abstraction.
+`simulator-api` is not OCPP transport. `ocpp-gateway` is not business logic. `message-processor` is not persistence. `ocpp-core` is not a WebSocket edge. Vue owns local CP simulation state for the target local simulator, including the accepted browser-refresh state-loss tradeoff.

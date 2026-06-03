@@ -128,6 +128,50 @@ Next available: **All tasks complete**.
 
 ---
 
+## Phase 9 — v4.3 Service Split Target
+
+- [ ] **T22 — Extract shared OCPP protocol package** 🔧🛰️
+  Create `packages/ocpp-protocol` with public `pkg/` packages for codec, message envelope, protocol interfaces, pending calls, OCPP 1.6J, and v2.0.1 placeholders. Move existing protocol tests and keep schema validation green.
+  _Acceptance:_ `cd packages/ocpp-protocol && go test ./...`; `cd packages/ocpp-schemas && go test ./...`.
+  _Blocked by:_ T21
+
+- [ ] **T23 — Split simulator-api from current apps/api** 🔧
+  Rename/extract the current combined API into `apps/simulator-api`. Keep CP/connector CRUD, settings, app config DB, `/api/realtime`, and `/api/health`. Remove OCPP frame generation/parsing, MQTT OCPP publishing, runtime transaction/meter/state ownership, and backend OCPP proxy responsibilities.
+  _Acceptance:_ `cd apps/simulator-api && go test ./...`; UI management API still lists/creates/deletes CPs and connectors.
+  _Blocked by:_ T22
+
+- [ ] **T24 — Add ocpp-gateway dumb bridge** 🔧
+  Create `apps/ocpp-gateway` with `/ws/{chargePointId}`. Maintain per-CP WebSocket connection registry, publish inbound raw OCPP frames unchanged to `ocpp/{chargePointId}/in`, subscribe to `ocpp/{chargePointId}/out`, and write outbound raw frames unchanged to the matching WebSocket. No DB, no business decisions, no state machine/MeterValueGenerator/transaction holder.
+  _Acceptance:_ Gateway bridge tests prove raw frames are unchanged and each CP has isolated WebSocket handling.
+  _Blocked by:_ T22
+
+- [ ] **T25 — Add message-processor response producer** 🛰️
+  Create `apps/message-processor`. Subscribe to `ocpp/+/in`, parse raw OCPP-J frames, respond to supported CP-to-server 1.6J CALLs, call `ocpp-core` for business decisions such as Authorize/StartTransaction/StopTransaction, publish raw CALLRESULT/CALLERROR to `ocpp/{chargePointId}/out`, and write consume/publish audit events to stdout/log only.
+  _Acceptance:_ `cd apps/message-processor && go test ./...`; no DB or `processor_events` table is introduced.
+  _Blocked by:_ T22
+
+- [ ] **T26 — Add ocpp-core canonical log + business service** 🛰️
+  Create `apps/ocpp-core` with `ocpp-core.db` tables `transactions`, `ocpp_message_logs`, and `runtime_events`. Subscribe directly to raw `ocpp/+/in` and `ocpp/+/out` as canonical log source. Answer message-processor callbacks. On startup initialize numeric transaction counter from `MAX(numeric_id)`. Generate StartTransaction UUID/numeric IDs and publish CSMS-initiated CALLs to `ocpp/{chargePointId}/out`.
+  _Acceptance:_ `cd apps/ocpp-core && go test ./...`; StartTransaction creates `id` UUID + restart-safe `numeric_id`; raw in/out frames persist to `ocpp_message_logs`.
+  _Blocked by:_ T22
+
+- [ ] **T27 — Move Vue to per-CP OCPP simulator client** 🔧
+  Point each simulated CP to `ws://ocpp-gateway:7080/ws/{chargePointId}`. Keep per-CP connector state, meter generation, transaction holder, and pending-call correlation in Vue. Document browser refresh local state loss as an accepted local-simulator tradeoff.
+  _Acceptance:_ UI creates CPs through `simulator-api`, opens one WebSocket per selected/running CP to gateway, and sends/receives only raw OCPP-J array frames.
+  _Blocked by:_ T23, T24
+
+- [ ] **T28 — Add MQTT + Docker Compose local orchestration** 🔧🛰️
+  Add local MQTT broker config and Docker Compose for `mqtt`, `simulator-api`, `ocpp-gateway`, `message-processor`, `ocpp-core`, `web`, and optional `csms`. Service Dockerfiles/build targets remain service-scoped.
+  _Acceptance:_ `docker compose up` starts the target services; MQTT topics carry raw OCPP arrays with no wrapper payloads.
+  _Blocked by:_ T23, T24, T25, T26
+
+- [ ] **T29 — End-to-end v4.3 verification and docs sync** 🔧🛰️
+  Verify CP create → boot → start transaction → meter values → stop transaction. Confirm raw `ocpp/{cpId}/in` and `ocpp/{cpId}/out` frames, canonical `ocpp-core` logs, processor stdout audit, UI realtime events, and module-level tests. Keep `AGENTS.md`, `CLAUDE.md`, `plan.md`, `README.md`, `OCPP_SIMULATOR_COMMUNICATION_WORK_PLAN.md`, and `tasks.md` synchronized.
+  _Acceptance:_ Each Go module is tested from its own directory with `go test ./...`; no root-level single `go test ./...` assumption; docs match implemented boundaries.
+  _Blocked by:_ T27, T28
+
+---
+
 ## Dependency map
 
 ```

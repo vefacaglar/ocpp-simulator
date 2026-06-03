@@ -35,11 +35,6 @@ function handleAuthorize(connectorId: number) {
   }
   store.authorizeConnector(connectorId, idTag.trim())
 }
-
-function handleSimulateRemoteStart(connectorId: number) {
-  const idTag = getIdTag(connectorId) || 'DEADBEEF'
-  store.simulateRemoteStart(idTag, connectorId)
-}
 </script>
 
 <template>
@@ -95,7 +90,7 @@ function handleSimulateRemoteStart(connectorId: number) {
                 <button class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Unavailable')">Disable</button>
               </div>
 
-              <!-- Preparing: Authorize (with idTag input), Unplug, Fault, Simulate Remote Start -->
+              <!-- Preparing: Authorize (with idTag input), Unplug, Fault -->
               <div v-else-if="connectorStatus(c.connectorNumber) === 'Preparing'" class="connector-actions-col">
                 <div class="auth-row">
                   <input
@@ -111,10 +106,6 @@ function handleSimulateRemoteStart(connectorId: number) {
                 <div class="action-row">
                   <button class="btn-action" @click="store.unplugConnector(c.connectorNumber)">Unplug</button>
                   <button class="btn-action btn-fault" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
-                </div>
-                <div class="dev-tools">
-                  <span class="dev-label">Dev</span>
-                  <button class="btn-action btn-dev" @click="handleSimulateRemoteStart(c.connectorNumber)">Simulate Remote Start</button>
                 </div>
               </div>
 

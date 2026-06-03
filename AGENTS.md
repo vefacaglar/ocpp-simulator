@@ -60,7 +60,7 @@ packages/
   ocpp-schemas/     # Go module: official OCPP JSON schemas (single source of truth) + embed + Validate()
   shared/           # Shared TS types / generated client
   config/           # Shared frontend config
-go.work             # Links apps/api, apps/csms, packages/ocpp-schemas
+go.work             # Links apps/simulator-api, apps/csms, apps/ocpp-gateway, apps/ocpp-core, apps/message-processor, packages/ocpp-protocol, packages/ocpp-schemas
 plan.md             # Full architecture & development plan (authoritative)
 ```
 

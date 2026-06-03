@@ -1,3 +1,9 @@
+// CRUD + config API client for simulator-api. OCPP frame transport
+// is no longer here in the v4.3 split; the Vue app opens one
+// WebSocket per charge point directly to ocpp-gateway (see
+// src/ocpp/gatewayClient.ts). This module is intentionally limited
+// to charge-point, connector, and settings management.
+
 export interface ChargePoint {
   id: string
   name: string
@@ -70,80 +76,8 @@ export async function deleteConnector(chargePointId: string, connectorId: number
   if (!res.ok) throw new Error('failed to delete connector')
 }
 
-export async function connect(chargePointId: string): Promise<void> {
-  const res = await fetch(`/api/charge-points/${chargePointId}/connect`, { method: 'POST' })
-  if (!res.ok) throw new Error('failed to connect')
-}
-
-export async function disconnect(chargePointId: string): Promise<void> {
-  const res = await fetch(`/api/charge-points/${chargePointId}/disconnect`, { method: 'POST' })
-  if (!res.ok) throw new Error('failed to disconnect')
-}
-
-export async function boot(chargePointId: string): Promise<void> {
-  const res = await fetch(`/api/charge-points/${chargePointId}/boot`, { method: 'POST' })
-  if (!res.ok) throw new Error('failed to send boot')
-}
-
-export async function heartbeat(chargePointId: string): Promise<void> {
-  const res = await fetch(`/api/charge-points/${chargePointId}/heartbeat`, { method: 'POST' })
-  if (!res.ok) throw new Error('failed to send heartbeat')
-}
-
-export async function startTransaction(chargePointId: string, connectorId: number, idTag: string = 'DEADBEEF'): Promise<void> {
-  const res = await fetch(`/api/charge-points/${chargePointId}/connectors/${connectorId}/start-transaction`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idTag }),
-  })
-  if (!res.ok) throw new Error('failed to start transaction')
-}
-
-export async function stopTransaction(chargePointId: string, connectorId: number, reason: string = 'Local'): Promise<void> {
-  const res = await fetch(`/api/charge-points/${chargePointId}/connectors/${connectorId}/stop-transaction`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reason }),
-  })
-  if (!res.ok) throw new Error('failed to stop transaction')
-}
-
-export async function sendMeterValues(chargePointId: string, connectorId: number): Promise<void> {
-  const res = await fetch(`/api/charge-points/${chargePointId}/connectors/${connectorId}/meter-values`, { method: 'POST' })
-  if (!res.ok) throw new Error('failed to send meter values')
-}
-
-export async function setConnectorStatus(chargePointId: string, connectorId: number, status: string): Promise<void> {
-  const res = await fetch(`/api/charge-points/${chargePointId}/connectors/${connectorId}/status`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
-  })
-  if (!res.ok) throw new Error('failed to set connector status')
-}
-
-export async function remoteStart(chargePointId: string, idTag: string = 'DEADBEEF', connectorId?: number): Promise<{ status: string }> {
-  const res = await fetch(`/api/charge-points/${chargePointId}/remote-start`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idTag, connectorId }),
-  })
-  if (!res.ok) throw new Error('failed to simulate remote start')
+export async function fetchVersions(): Promise<{ version: string; label: string; status: string }[]> {
+  const res = await fetch('/api/versions')
+  if (!res.ok) throw new Error('failed to fetch versions')
   return res.json()
-}
-
-export async function remoteStop(chargePointId: string, transactionId: number): Promise<{ status: string }> {
-  const res = await fetch(`/api/charge-points/${chargePointId}/remote-stop`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ transactionId }),
-  })
-  if (!res.ok) throw new Error('failed to simulate remote stop')
-  return res.json()
-}
-
-export function connectChargePointWS(chargePointId: string): WebSocket {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.host
-  return new WebSocket(`${protocol}//${host}/api/ws/${chargePointId}`)
 }

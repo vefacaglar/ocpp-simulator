@@ -24,7 +24,6 @@ onMounted(() => {
     if (event.type === 'charge_point.connected' || event.type === 'charge_point.disconnected') {
       cpStore.loadChargePoints()
     }
-    cpStore.handleRealtimeEvent(event)
   })
 })
 

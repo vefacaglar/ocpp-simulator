@@ -1,24 +1,123 @@
-.PHONY: dev dev-api dev-csms dev-web kill-ports
+.PHONY: dev dev-stack dev-web down down-v kill-ports test wire-dump help
+# dev-backend:* targets intentionally use a colon in their
+# name; make's .PHONY list rejects colons, so they are not
+# listed here — they are treated as phony automatically because
+# their recipes are run unconditionally (no produced file).
 
+# Vite dev-server port; the only port the Makefile owns. Backend
+# ports are managed by docker compose (see docker-compose.yml).
+VITE_PORT := 5173
+
+# dev is the v4.3 entry point. It brings up the 5 backends
+# (mqtt, ocpp-core, message-processor, ocpp-gateway,
+# simulator-api) in containers and then runs the Vue UI
+# outside the stack with hot-reload. The web container is
+# intentionally excluded so the UI sees source edits without
+# a rebuild.
+#
+# Resulting port map (all bound to localhost):
+#   mqtt:1883, simulator-api:7070, ocpp-gateway:7080,
+#   ocpp-core:7090, message-processor:7091, web:5173 (vite)
 dev: kill-ports
-	@echo "Starting all services..."
-	@(sleep 3 && printf "\n\033[1;32m✓ All services running\033[0m\n\n  Vue Frontend  → http://localhost:5173\n  Go API        → http://localhost:7070\n  Mock CSMS     → ws://localhost:8080/ocpp/{chargePointId}\n\n") &
-	@make -j3 dev-api dev-csms dev-web
+	@echo "Starting backend stack via docker compose..."
+	@docker compose up -d mqtt ocpp-core message-processor ocpp-gateway simulator-api
+	@echo ""
+	@echo "Backend ports:"
+	@echo "  mqtt:1883, simulator-api:7070, ocpp-gateway:7080,"
+	@echo "  ocpp-core:7090, message-processor:7091"
+	@echo ""
+	@echo "Waiting for backend health..."
+	@docker compose up -d --wait simulator-api ocpp-gateway ocpp-core message-processor
+	@echo ""
+	@echo "Backends up. Starting Vue dev server with hot-reload..."
+	@echo "  Web → http://localhost:$(VITE_PORT)"
+	@exec pnpm --filter web dev
 
-dev-api:
-	@echo "Starting API on :7070..."
-	cd apps/api && go run ./cmd/server
+# dev-stack brings up only the backend services (no UI). Use
+# this if you want to develop the UI separately or hit the
+# backends directly with curl.
+dev-stack:
+	@echo "Bringing up backend stack via docker compose..."
+	@docker compose up -d --wait mqtt ocpp-core message-processor ocpp-gateway simulator-api
+	@echo ""
+	@docker compose ps
 
-dev-csms:
-	@echo "Starting CSMS on :8080..."
-	cd apps/csms && go run ./cmd/server
+# dev-web runs only the Vue dev server. Use this when the
+# backends are already up (e.g. via dev-stack or in a separate
+# shell) and you only want hot-reload on the UI.
+dev-web: kill-ports
+	@echo "Starting Vue dev server on :$(VITE_PORT)..."
+	@exec pnpm --filter web dev
 
-dev-web:
-	@echo "Starting Web on :5173..."
-	pnpm --filter web dev
+# dev-backend:<svc> runs a single Go service locally with
+# `go run` against its own module directory. These bypass
+# docker compose and are useful for tight inner-loop work on
+# a single service. The env vars match the compose topology
+# (mqtt + ocpp-core) so the service can talk to its peers.
+# Use `make dev-backend:simulator-api` etc. The colon in the
+# target name is escaped from make's target:prereq parsing
+# with a backslash so the rule works on a single colon.
+dev-backend\:simulator-api:
+	@echo "Starting simulator-api on :7070..."
+	@cd apps/simulator-api && OCPP_SIMULATOR_DB=$$PWD/ocpp-simulator.db PORT=7070 go run ./cmd/server
 
+dev-backend\:ocpp-gateway:
+	@echo "Starting ocpp-gateway on :7080..."
+	@cd apps/ocpp-gateway && MQTT_BROKER_URL=tcp://localhost:1883 MQTT_CLIENT_ID=ocpp-gateway-local GATEWAY_ADDR=:7080 go run ./cmd/gateway
+
+dev-backend\:ocpp-core:
+	@echo "Starting ocpp-core on :7090..."
+	@cd apps/ocpp-core && OCPP_CORE_DB=$$PWD/ocpp-core.db MQTT_BROKER_URL=tcp://localhost:1883 MQTT_CLIENT_ID=ocpp-core-local HTTP_ADDR=:7090 go run ./cmd/core
+
+dev-backend\:message-processor:
+	@echo "Starting message-processor on :7091..."
+	@cd apps/message-processor && MQTT_BROKER_URL=tcp://localhost:1883 MQTT_CLIENT_ID=message-processor-local OCPP_CORE_URL=http://localhost:7090 HEALTH_ADDR=:7091 go run ./cmd/processor
+
+dev-backend\:csms:
+	@echo "Starting csms on :8080..."
+	@cd apps/csms && go run ./cmd/server
+
+down:
+	@echo "Stopping backend stack..."
+	@docker compose down
+
+down-v:
+	@echo "Stopping backend stack and removing volumes (DBs)..."
+	@docker compose down -v
+
+# kill-ports frees ports owned by the Makefile. The Vue dev
+# server is the only port we manage directly; backend ports
+# are compose's responsibility.
 kill-ports:
-	@echo "Killing processes on ports 7070, 8080, 5173..."
-	@-lsof -ti:7070 | xargs kill -9 2>/dev/null || true
-	@-lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-	@-lsof -ti:5173 | xargs kill -9 2>/dev/null || true
+	@echo "Killing processes on port $(VITE_PORT) (vite)..."
+	@-lsof -ti:$(VITE_PORT) | xargs kill -9 2>/dev/null || true
+
+# test runs each Go module's tests from its own directory,
+# with GOWORK=off so the workspace is not consulted. This
+# mirrors what CI and contributors run locally.
+test:
+	@for d in apps/simulator-api apps/csms apps/ocpp-gateway apps/ocpp-core apps/message-processor packages/ocpp-protocol packages/ocpp-schemas; do \
+		echo "=== $$d ==="; \
+		(cd "$$d" && GOWORK=off go test ./...); \
+	done
+
+# wire-dump runs a fake charge point against the local stack
+# and captures the raw OCPP-J frames that traverse MQTT. The
+# output is written to docs/wire-dumps/wire-dump-<timestamp>.log.
+# Requires a running backend stack (make dev or make dev-stack).
+wire-dump:
+	@./scripts/wire-dump.sh
+
+help:
+	@echo "v4.3 dev entry points:"
+	@echo "  make dev                 - bring up backends in compose, then vite with HMR"
+	@echo "  make dev-stack           - backends only (no UI), waits for health"
+	@echo "  make dev-web             - vite only (assumes backends are up)"
+	@echo "  make dev-backend:<svc>   - one Go service via go run, bypasses compose"
+	@echo "                             (simulator-api, ocpp-gateway, ocpp-core, message-processor, csms)"
+	@echo "  make down                - stop the compose stack"
+	@echo "  make down-v              - stop + remove volumes (DBs)"
+	@echo "  make kill-ports          - free vite port ($(VITE_PORT))"
+	@echo "  make test                - run all 7 Go module tests with GOWORK=off"
+	@echo "  make wire-dump           - run a fake CP and capture MQTT frames"
+	@echo "  make help                - this message"

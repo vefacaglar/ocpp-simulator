@@ -6,20 +6,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
 	ocppschemas "github.com/user/ocpp-simulator/packages/ocpp-schemas"
-	"github.com/user/ocpp-simulator/apps/api/internal/ocpp"
 )
 
 func TestBuildBootNotification_SchemaValid(t *testing.T) {
 	p := NewProtocol()
-	msg, err := p.BuildBootNotification(context.Background(), ocpp.BootNotificationInput{
+	msg, err := p.BuildBootNotification(context.Background(), protocol.BootNotificationInput{
 		ChargePointVendor: "TestVendor",
 		ChargePointModel:  "TestModel",
 	})
 	if err != nil {
 		t.Fatalf("BuildBootNotification: %v", err)
 	}
-	if msg.MessageTypeID != ocpp.CALL {
+	if msg.MessageTypeID != message.CALL {
 		t.Fatalf("expected CALL, got %d", msg.MessageTypeID)
 	}
 	if msg.Action != "BootNotification" {
@@ -46,7 +48,7 @@ func TestBuildHeartbeat_SchemaValid(t *testing.T) {
 
 func TestBuildStatusNotification_SchemaValid(t *testing.T) {
 	p := NewProtocol()
-	msg, err := p.BuildStatusNotification(context.Background(), ocpp.StatusNotificationInput{
+	msg, err := p.BuildStatusNotification(context.Background(), protocol.StatusNotificationInput{
 		ConnectorID: 1,
 		Status:      "Available",
 		ErrorCode:   "NoError",
@@ -61,7 +63,7 @@ func TestBuildStatusNotification_SchemaValid(t *testing.T) {
 
 func TestBuildAuthorize_SchemaValid(t *testing.T) {
 	p := NewProtocol()
-	msg, err := p.BuildAuthorize(context.Background(), ocpp.AuthorizeInput{IDTag: "ABCDEF12"})
+	msg, err := p.BuildAuthorize(context.Background(), protocol.AuthorizeInput{IDTag: "ABCDEF12"})
 	if err != nil {
 		t.Fatalf("BuildAuthorize: %v", err)
 	}
@@ -72,7 +74,7 @@ func TestBuildAuthorize_SchemaValid(t *testing.T) {
 
 func TestBuildStartTransaction_SchemaValid(t *testing.T) {
 	p := NewProtocol()
-	msg, err := p.BuildStartTransaction(context.Background(), ocpp.StartTransactionInput{
+	msg, err := p.BuildStartTransaction(context.Background(), protocol.StartTransactionInput{
 		ConnectorID: 1,
 		IDTag:       "ABCDEF12",
 		MeterStart:  0,
@@ -89,12 +91,12 @@ func TestBuildStartTransaction_SchemaValid(t *testing.T) {
 func TestBuildMeterValues_SchemaValid(t *testing.T) {
 	p := NewProtocol()
 	txID := 42
-	msg, err := p.BuildMeterValues(context.Background(), ocpp.MeterValuesInput{
+	msg, err := p.BuildMeterValues(context.Background(), protocol.MeterValuesInput{
 		ConnectorID:   1,
 		TransactionID: &txID,
-		MeterValues: []ocpp.MeterValue{{
+		MeterValues: []protocol.MeterValue{{
 			Timestamp: time.Date(2025, 1, 1, 0, 1, 0, 0, time.UTC),
-			SampledValue: []ocpp.SampledValue{
+			SampledValue: []protocol.SampledValue{
 				{Value: "1234", Measurand: "Energy.Active.Import.Register", Unit: "Wh"},
 			},
 		}},
@@ -109,7 +111,7 @@ func TestBuildMeterValues_SchemaValid(t *testing.T) {
 
 func TestBuildStopTransaction_SchemaValid(t *testing.T) {
 	p := NewProtocol()
-	msg, err := p.BuildStopTransaction(context.Background(), ocpp.StopTransactionInput{
+	msg, err := p.BuildStopTransaction(context.Background(), protocol.StopTransactionInput{
 		TransactionID: 42,
 		IDTag:         "ABCDEF12",
 		MeterStop:     5000,
@@ -125,18 +127,18 @@ func TestBuildStopTransaction_SchemaValid(t *testing.T) {
 }
 
 func TestEncodeDecode_CALL(t *testing.T) {
-	codec := ocpp.NewCodec()
-	msg := ocpp.Message{
-		MessageTypeID: ocpp.CALL,
+	c := codec.New()
+	msg := message.Message{
+		MessageTypeID: message.CALL,
 		UniqueID:      "test-123",
 		Action:        "Heartbeat",
 		Payload:       json.RawMessage(`{}`),
 	}
-	raw, err := codec.Encode(msg)
+	raw, err := c.Encode(msg)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	decoded, err := codec.Decode(raw)
+	decoded, err := c.Decode(raw)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
@@ -152,21 +154,21 @@ func TestEncodeDecode_CALL(t *testing.T) {
 }
 
 func TestEncodeDecode_CALLRESULT(t *testing.T) {
-	codec := ocpp.NewCodec()
-	msg := ocpp.Message{
-		MessageTypeID: ocpp.CALLRESULT,
+	c := codec.New()
+	msg := message.Message{
+		MessageTypeID: message.CALLRESULT,
 		UniqueID:      "test-456",
 		Payload:       json.RawMessage(`{"currentTime":"2025-01-01T00:00:00Z"}`),
 	}
-	raw, err := codec.Encode(msg)
+	raw, err := c.Encode(msg)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	decoded, err := codec.Decode(raw)
+	decoded, err := c.Decode(raw)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	if decoded.MessageTypeID != ocpp.CALLRESULT {
+	if decoded.MessageTypeID != message.CALLRESULT {
 		t.Errorf("MessageTypeID mismatch: %d", decoded.MessageTypeID)
 	}
 	if decoded.UniqueID != "test-456" {
@@ -175,38 +177,38 @@ func TestEncodeDecode_CALLRESULT(t *testing.T) {
 }
 
 func TestEncodeDecode_CALLERROR(t *testing.T) {
-	codec := ocpp.NewCodec()
-	msg, err := codec.BuildError("test-789", ocpp.ErrorCodeNotImplemented, "not supported", nil)
+	c := codec.New()
+	msg, err := c.BuildError("test-789", message.ErrorCodeNotImplemented, "not supported", nil)
 	if err != nil {
 		t.Fatalf("BuildError: %v", err)
 	}
-	raw, err := codec.Encode(msg)
+	raw, err := c.Encode(msg)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	decoded, err := codec.Decode(raw)
+	decoded, err := c.Decode(raw)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	if decoded.MessageTypeID != ocpp.CALLERROR {
+	if decoded.MessageTypeID != message.CALLERROR {
 		t.Errorf("MessageTypeID mismatch: %d", decoded.MessageTypeID)
 	}
-	if decoded.ErrorCode != string(ocpp.ErrorCodeNotImplemented) {
+	if decoded.ErrorCode != string(message.ErrorCodeNotImplemented) {
 		t.Errorf("ErrorCode mismatch: %s", decoded.ErrorCode)
 	}
 }
 
 func TestDecode_Malformed(t *testing.T) {
-	codec := ocpp.NewCodec()
-	_, err := codec.Decode([]byte(`not json`))
+	c := codec.New()
+	_, err := c.Decode([]byte(`not json`))
 	if err == nil {
 		t.Error("expected error for invalid JSON")
 	}
-	_, err = codec.Decode([]byte(`[]`))
+	_, err = c.Decode([]byte(`[]`))
 	if err == nil {
 		t.Error("expected error for empty array")
 	}
-	_, err = codec.Decode([]byte(`[99,"id","action",{}]`))
+	_, err = c.Decode([]byte(`[99,"id","action",{}]`))
 	if err == nil {
 		t.Error("expected error for unknown message type")
 	}
@@ -215,7 +217,7 @@ func TestDecode_Malformed(t *testing.T) {
 func TestUniqueID_Uniqueness(t *testing.T) {
 	seen := make(map[string]bool)
 	for i := 0; i < 1000; i++ {
-		id := ocpp.GenerateUniqueID()
+		id := message.GenerateUniqueID()
 		if id == "" {
 			t.Fatal("empty unique ID")
 		}
@@ -584,7 +586,7 @@ func TestBuildChangeConfigurationResponse_SchemaValid(t *testing.T) {
 func TestBuildGetConfigurationResponse_SchemaValid(t *testing.T) {
 	p := NewProtocol()
 	val := "300"
-	payload, err := p.BuildGetConfigurationResponse([]ocpp.ConfigurationKey{
+	payload, err := p.BuildGetConfigurationResponse([]protocol.ConfigurationKey{
 		{Key: "HeartbeatInterval", Readonly: false, Value: &val},
 	}, nil)
 	if err != nil {

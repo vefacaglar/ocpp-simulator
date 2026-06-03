@@ -8,10 +8,10 @@ import (
 	"github.com/user/ocpp-simulator/apps/api/internal/api"
 	"github.com/user/ocpp-simulator/apps/api/internal/config"
 	"github.com/user/ocpp-simulator/apps/api/internal/db"
-	"github.com/user/ocpp-simulator/apps/api/internal/ocpp"
-	"github.com/user/ocpp-simulator/apps/api/internal/ocpp/v16"
 	"github.com/user/ocpp-simulator/apps/api/internal/realtime"
 	"github.com/user/ocpp-simulator/apps/api/internal/simulator"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
+	v16 "github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/v16"
 )
 
 func main() {
@@ -30,7 +30,7 @@ func main() {
 	eventBus := realtime.NewEventBus()
 	hub := realtime.NewHub(eventBus)
 
-	factory := ocpp.NewFactory()
+	factory := protocol.NewFactory()
 	factory.Register(v16.NewProtocol())
 
 	txRepo := db.NewTransactionRepo(database)

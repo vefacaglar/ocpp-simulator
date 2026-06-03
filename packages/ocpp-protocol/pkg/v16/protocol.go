@@ -1,3 +1,7 @@
+// Package v16 implements the OCPP 1.6J protocol. It is the only place that
+// knows 1.6J-specific wire field names, casing, enums, and the integer
+// transactionId model. It produces raw [2, uid, action, payload] CALL frames
+// via codec and accepts matching CALL/CALLRESULT/CALLERROR frames back.
 package v16
 
 import (
@@ -6,22 +10,24 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/user/ocpp-simulator/apps/api/internal/ocpp"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
 )
 
 type Protocol struct {
-	codec *ocpp.Codec
+	codec *codec.Codec
 }
 
 func NewProtocol() *Protocol {
-	return &Protocol{codec: ocpp.NewCodec()}
+	return &Protocol{codec: codec.New()}
 }
 
 func (p *Protocol) Version() string {
 	return "1.6J"
 }
 
-func (p *Protocol) BuildBootNotification(ctx context.Context, input ocpp.BootNotificationInput) (ocpp.Message, error) {
+func (p *Protocol) BuildBootNotification(ctx context.Context, input protocol.BootNotificationInput) (message.Message, error) {
 	payload := struct {
 		ChargePointVendor string `json:"chargePointVendor"`
 		ChargePointModel  string `json:"chargePointModel"`
@@ -29,14 +35,14 @@ func (p *Protocol) BuildBootNotification(ctx context.Context, input ocpp.BootNot
 		ChargePointVendor: input.ChargePointVendor,
 		ChargePointModel:  input.ChargePointModel,
 	}
-	return p.codec.BuildCall(ocpp.GenerateUniqueID(), "BootNotification", payload)
+	return p.codec.BuildCall(message.GenerateUniqueID(), "BootNotification", payload)
 }
 
-func (p *Protocol) BuildHeartbeat(ctx context.Context) (ocpp.Message, error) {
-	return p.codec.BuildCall(ocpp.GenerateUniqueID(), "Heartbeat", struct{}{})
+func (p *Protocol) BuildHeartbeat(ctx context.Context) (message.Message, error) {
+	return p.codec.BuildCall(message.GenerateUniqueID(), "Heartbeat", struct{}{})
 }
 
-func (p *Protocol) BuildStatusNotification(ctx context.Context, input ocpp.StatusNotificationInput) (ocpp.Message, error) {
+func (p *Protocol) BuildStatusNotification(ctx context.Context, input protocol.StatusNotificationInput) (message.Message, error) {
 	payload := struct {
 		ConnectorID int    `json:"connectorId"`
 		ErrorCode   string `json:"errorCode"`
@@ -48,19 +54,19 @@ func (p *Protocol) BuildStatusNotification(ctx context.Context, input ocpp.Statu
 		Status:      input.Status,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
-	return p.codec.BuildCall(ocpp.GenerateUniqueID(), "StatusNotification", payload)
+	return p.codec.BuildCall(message.GenerateUniqueID(), "StatusNotification", payload)
 }
 
-func (p *Protocol) BuildAuthorize(ctx context.Context, input ocpp.AuthorizeInput) (ocpp.Message, error) {
+func (p *Protocol) BuildAuthorize(ctx context.Context, input protocol.AuthorizeInput) (message.Message, error) {
 	payload := struct {
 		IDTag string `json:"idTag"`
 	}{
 		IDTag: input.IDTag,
 	}
-	return p.codec.BuildCall(ocpp.GenerateUniqueID(), "Authorize", payload)
+	return p.codec.BuildCall(message.GenerateUniqueID(), "Authorize", payload)
 }
 
-func (p *Protocol) BuildStartTransaction(ctx context.Context, input ocpp.StartTransactionInput) (ocpp.Message, error) {
+func (p *Protocol) BuildStartTransaction(ctx context.Context, input protocol.StartTransactionInput) (message.Message, error) {
 	payload := struct {
 		ConnectorID int    `json:"connectorId"`
 		IDTag       string `json:"idTag"`
@@ -72,10 +78,10 @@ func (p *Protocol) BuildStartTransaction(ctx context.Context, input ocpp.StartTr
 		MeterStart:  input.MeterStart,
 		Timestamp:   input.Timestamp.Format(time.RFC3339),
 	}
-	return p.codec.BuildCall(ocpp.GenerateUniqueID(), "StartTransaction", payload)
+	return p.codec.BuildCall(message.GenerateUniqueID(), "StartTransaction", payload)
 }
 
-func (p *Protocol) BuildMeterValues(ctx context.Context, input ocpp.MeterValuesInput) (ocpp.Message, error) {
+func (p *Protocol) BuildMeterValues(ctx context.Context, input protocol.MeterValuesInput) (message.Message, error) {
 	type sv struct {
 		Value     string `json:"value"`
 		Measurand string `json:"measurand,omitempty"`
@@ -107,10 +113,10 @@ func (p *Protocol) BuildMeterValues(ctx context.Context, input ocpp.MeterValuesI
 		TransactionID: input.TransactionID,
 		MeterValue:    mvs,
 	}
-	return p.codec.BuildCall(ocpp.GenerateUniqueID(), "MeterValues", payload)
+	return p.codec.BuildCall(message.GenerateUniqueID(), "MeterValues", payload)
 }
 
-func (p *Protocol) BuildStopTransaction(ctx context.Context, input ocpp.StopTransactionInput) (ocpp.Message, error) {
+func (p *Protocol) BuildStopTransaction(ctx context.Context, input protocol.StopTransactionInput) (message.Message, error) {
 	payload := struct {
 		TransactionID int    `json:"transactionId"`
 		IDTag         string `json:"idTag,omitempty"`
@@ -124,13 +130,13 @@ func (p *Protocol) BuildStopTransaction(ctx context.Context, input ocpp.StopTran
 		Timestamp:     input.Timestamp.Format(time.RFC3339),
 		Reason:        input.Reason,
 	}
-	return p.codec.BuildCall(ocpp.GenerateUniqueID(), "StopTransaction", payload)
+	return p.codec.BuildCall(message.GenerateUniqueID(), "StopTransaction", payload)
 }
 
 type BootNotificationResponse struct {
-	Status     string `json:"status"`
+	Status      string `json:"status"`
 	CurrentTime string `json:"currentTime"`
-	Interval   int    `json:"interval"`
+	Interval    int    `json:"interval"`
 }
 
 type HeartbeatResponse struct {
@@ -190,8 +196,8 @@ func ParseStopTransactionResponse(payload json.RawMessage) (*StopTransactionResp
 
 // CSMS-initiated request parsing
 
-func (p *Protocol) ParseRemoteStartTransactionRequest(payload json.RawMessage) (*ocpp.RemoteStartTransactionRequest, error) {
-	var req ocpp.RemoteStartTransactionRequest
+func (p *Protocol) ParseRemoteStartTransactionRequest(payload json.RawMessage) (*protocol.RemoteStartTransactionRequest, error) {
+	var req protocol.RemoteStartTransactionRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("parse RemoteStartTransaction.req: %w", err)
 	}
@@ -201,16 +207,16 @@ func (p *Protocol) ParseRemoteStartTransactionRequest(payload json.RawMessage) (
 	return &req, nil
 }
 
-func (p *Protocol) ParseRemoteStopTransactionRequest(payload json.RawMessage) (*ocpp.RemoteStopTransactionRequest, error) {
-	var req ocpp.RemoteStopTransactionRequest
+func (p *Protocol) ParseRemoteStopTransactionRequest(payload json.RawMessage) (*protocol.RemoteStopTransactionRequest, error) {
+	var req protocol.RemoteStopTransactionRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("parse RemoteStopTransaction.req: %w", err)
 	}
 	return &req, nil
 }
 
-func (p *Protocol) ParseResetRequest(payload json.RawMessage) (*ocpp.ResetRequest, error) {
-	var req ocpp.ResetRequest
+func (p *Protocol) ParseResetRequest(payload json.RawMessage) (*protocol.ResetRequest, error) {
+	var req protocol.ResetRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("parse Reset.req: %w", err)
 	}
@@ -220,8 +226,8 @@ func (p *Protocol) ParseResetRequest(payload json.RawMessage) (*ocpp.ResetReques
 	return &req, nil
 }
 
-func (p *Protocol) ParseUnlockConnectorRequest(payload json.RawMessage) (*ocpp.UnlockConnectorRequest, error) {
-	var req ocpp.UnlockConnectorRequest
+func (p *Protocol) ParseUnlockConnectorRequest(payload json.RawMessage) (*protocol.UnlockConnectorRequest, error) {
+	var req protocol.UnlockConnectorRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("parse UnlockConnector.req: %w", err)
 	}
@@ -231,8 +237,8 @@ func (p *Protocol) ParseUnlockConnectorRequest(payload json.RawMessage) (*ocpp.U
 	return &req, nil
 }
 
-func (p *Protocol) ParseChangeConfigurationRequest(payload json.RawMessage) (*ocpp.ChangeConfigurationRequest, error) {
-	var req ocpp.ChangeConfigurationRequest
+func (p *Protocol) ParseChangeConfigurationRequest(payload json.RawMessage) (*protocol.ChangeConfigurationRequest, error) {
+	var req protocol.ChangeConfigurationRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("parse ChangeConfiguration.req: %w", err)
 	}
@@ -242,16 +248,16 @@ func (p *Protocol) ParseChangeConfigurationRequest(payload json.RawMessage) (*oc
 	return &req, nil
 }
 
-func (p *Protocol) ParseGetConfigurationRequest(payload json.RawMessage) (*ocpp.GetConfigurationRequest, error) {
-	var req ocpp.GetConfigurationRequest
+func (p *Protocol) ParseGetConfigurationRequest(payload json.RawMessage) (*protocol.GetConfigurationRequest, error) {
+	var req protocol.GetConfigurationRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("parse GetConfiguration.req: %w", err)
 	}
 	return &req, nil
 }
 
-func (p *Protocol) ParseTriggerMessageRequest(payload json.RawMessage) (*ocpp.TriggerMessageRequest, error) {
-	var req ocpp.TriggerMessageRequest
+func (p *Protocol) ParseTriggerMessageRequest(payload json.RawMessage) (*protocol.TriggerMessageRequest, error) {
+	var req protocol.TriggerMessageRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("parse TriggerMessage.req: %w", err)
 	}
@@ -261,8 +267,8 @@ func (p *Protocol) ParseTriggerMessageRequest(payload json.RawMessage) (*ocpp.Tr
 	return &req, nil
 }
 
-func (p *Protocol) ParseChangeAvailabilityRequest(payload json.RawMessage) (*ocpp.ChangeAvailabilityRequest, error) {
-	var req ocpp.ChangeAvailabilityRequest
+func (p *Protocol) ParseChangeAvailabilityRequest(payload json.RawMessage) (*protocol.ChangeAvailabilityRequest, error) {
+	var req protocol.ChangeAvailabilityRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, fmt.Errorf("parse ChangeAvailability.req: %w", err)
 	}
@@ -309,10 +315,10 @@ func (p *Protocol) BuildChangeConfigurationResponse(status string) (json.RawMess
 	return json.Marshal(resp)
 }
 
-func (p *Protocol) BuildGetConfigurationResponse(configKeys []ocpp.ConfigurationKey, unknownKeys []string) (json.RawMessage, error) {
+func (p *Protocol) BuildGetConfigurationResponse(configKeys []protocol.ConfigurationKey, unknownKeys []string) (json.RawMessage, error) {
 	resp := struct {
-		ConfigurationKey []ocpp.ConfigurationKey `json:"configurationKey,omitempty"`
-		UnknownKey       []string                `json:"unknownKey,omitempty"`
+		ConfigurationKey []protocol.ConfigurationKey `json:"configurationKey,omitempty"`
+		UnknownKey       []string                   `json:"unknownKey,omitempty"`
 	}{
 		ConfigurationKey: configKeys,
 		UnknownKey:       unknownKeys,

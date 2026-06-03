@@ -9,19 +9,22 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/user/ocpp-simulator/apps/api/internal/ocpp"
-	"github.com/user/ocpp-simulator/apps/api/internal/ocpp/v16"
 	"github.com/user/ocpp-simulator/apps/api/internal/realtime"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/pendingcalls"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
+	v16 "github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/v16"
 )
 
-type ResponseHandler func(cpID string, action string, msg ocpp.Message)
+type ResponseHandler func(cpID string, action string, msg message.Message)
 
 type OcppWebSocketClient struct {
 	cpID            string
 	url             string
-	protocol        ocpp.Protocol
-	codec           *ocpp.Codec
-	pending         *ocpp.PendingCallRegistry
+	protocol        protocol.Protocol
+	codec           *codec.Codec
+	pending         *pendingcalls.Registry
 	eventBus        *realtime.EventBus
 	responseHandler ResponseHandler
 	inboundHandler  *InboundCallHandler
@@ -41,13 +44,13 @@ const (
 	reconnectMaxRetries = 0 // 0 = unlimited
 )
 
-func NewOcppWebSocketClient(cpID, url string, protocol ocpp.Protocol, eventBus *realtime.EventBus) *OcppWebSocketClient {
+func NewOcppWebSocketClient(cpID, url string, protocol protocol.Protocol, eventBus *realtime.EventBus) *OcppWebSocketClient {
 	return &OcppWebSocketClient{
 		cpID:     cpID,
 		url:      url,
 		protocol: protocol,
-		codec:    ocpp.NewCodec(),
-		pending:  ocpp.NewPendingCallRegistry(),
+		codec:    codec.New(),
+		pending:  pendingcalls.New(),
 		eventBus: eventBus,
 	}
 }
@@ -124,7 +127,7 @@ func (c *OcppWebSocketClient) Disconnect() error {
 	return nil
 }
 
-func (c *OcppWebSocketClient) Send(msg ocpp.Message) error {
+func (c *OcppWebSocketClient) Send(msg message.Message) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -141,8 +144,8 @@ func (c *OcppWebSocketClient) Send(msg ocpp.Message) error {
 		return fmt.Errorf("write: %w", err)
 	}
 
-	if msg.MessageTypeID == ocpp.CALL {
-		c.pending.Register(ocpp.PendingCall{
+	if msg.MessageTypeID == message.CALL {
+		c.pending.Register(pendingcalls.PendingCall{
 			UniqueID:  msg.UniqueID,
 			Action:    msg.Action,
 			SentAt:    time.Now(),
@@ -155,7 +158,7 @@ func (c *OcppWebSocketClient) Send(msg ocpp.Message) error {
 }
 
 func (c *OcppWebSocketClient) SendBootNotification(ctx context.Context, vendor, model string) error {
-	msg, err := c.protocol.BuildBootNotification(ctx, ocpp.BootNotificationInput{
+	msg, err := c.protocol.BuildBootNotification(ctx, protocol.BootNotificationInput{
 		ChargePointVendor: vendor,
 		ChargePointModel:  model,
 	})
@@ -174,7 +177,7 @@ func (c *OcppWebSocketClient) SendHeartbeat(ctx context.Context) error {
 }
 
 func (c *OcppWebSocketClient) SendStatusNotification(ctx context.Context, connectorID int, status, errorCode string) error {
-	msg, err := c.protocol.BuildStatusNotification(ctx, ocpp.StatusNotificationInput{
+	msg, err := c.protocol.BuildStatusNotification(ctx, protocol.StatusNotificationInput{
 		ConnectorID: connectorID,
 		Status:      status,
 		ErrorCode:   errorCode,
@@ -213,13 +216,13 @@ func (c *OcppWebSocketClient) readLoop(ctx context.Context) {
 		c.publishOCPPEvent("inbound", msg.Action, json.RawMessage(raw))
 
 		switch msg.MessageTypeID {
-		case ocpp.CALL:
+		case message.CALL:
 			c.handleInboundCall(msg)
-		case ocpp.CALLRESULT:
+		case message.CALLRESULT:
 			if call, ok := c.pending.Resolve(msg.UniqueID); ok {
 				c.handleResponse(call, msg)
 			}
-		case ocpp.CALLERROR:
+		case message.CALLERROR:
 			log.Printf("[%s] CALLERROR: %s - %s", c.cpID, msg.ErrorCode, msg.ErrorDescription)
 			c.publishEvent("ocpp.call_error.received", nil,
 				fmt.Sprintf("CALLERROR: %s - %s", msg.ErrorCode, msg.ErrorDescription))
@@ -293,7 +296,7 @@ func (c *OcppWebSocketClient) scheduleReconnect() {
 	}
 }
 
-func (c *OcppWebSocketClient) handleResponse(call ocpp.PendingCall, msg ocpp.Message) {
+func (c *OcppWebSocketClient) handleResponse(call pendingcalls.PendingCall, msg message.Message) {
 	if c.responseHandler != nil {
 		c.responseHandler(c.cpID, call.Action, msg)
 	}
@@ -328,10 +331,10 @@ func (c *OcppWebSocketClient) handleResponse(call ocpp.PendingCall, msg ocpp.Mes
 	}
 }
 
-func (c *OcppWebSocketClient) handleInboundCall(msg ocpp.Message) {
+func (c *OcppWebSocketClient) handleInboundCall(msg message.Message) {
 	if c.inboundHandler == nil {
 		log.Printf("[%s] no inbound handler, rejecting %s", c.cpID, msg.Action)
-		errMsg, _ := c.codec.BuildError(msg.UniqueID, ocpp.ErrorCodeNotImplemented,
+		errMsg, _ := c.codec.BuildError(msg.UniqueID, message.ErrorCodeNotImplemented,
 			fmt.Sprintf("action %s not supported", msg.Action), nil)
 		c.Send(errMsg)
 		return
@@ -340,7 +343,7 @@ func (c *OcppWebSocketClient) handleInboundCall(msg ocpp.Message) {
 	payload, err := c.inboundHandler.Handle(c.cpID, msg)
 	if err != nil {
 		log.Printf("[%s] inbound %s error: %v", c.cpID, msg.Action, err)
-		errMsg, _ := c.codec.BuildError(msg.UniqueID, ocpp.ErrorCodeNotImplemented, err.Error(), nil)
+		errMsg, _ := c.codec.BuildError(msg.UniqueID, message.ErrorCodeNotImplemented, err.Error(), nil)
 		c.Send(errMsg)
 		return
 	}

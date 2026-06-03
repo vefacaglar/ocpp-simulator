@@ -4,16 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/user/ocpp-simulator/apps/api/internal/ocpp"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
 )
 
 // InboundCallHandler dispatches CSMS-initiated CALL messages to the appropriate runtime method.
 type InboundCallHandler struct {
 	runtime *Runtime
-	factory *ocpp.Factory
+	factory *protocol.Factory
 }
 
-func NewInboundCallHandler(runtime *Runtime, factory *ocpp.Factory) *InboundCallHandler {
+func NewInboundCallHandler(runtime *Runtime, factory *protocol.Factory) *InboundCallHandler {
 	return &InboundCallHandler{
 		runtime: runtime,
 		factory: factory,
@@ -22,7 +23,7 @@ func NewInboundCallHandler(runtime *Runtime, factory *ocpp.Factory) *InboundCall
 
 // Handle processes an inbound CSMS-initiated CALL and returns the CALLRESULT payload.
 // Returns an error if the action is not supported or processing fails.
-func (h *InboundCallHandler) Handle(cpID string, msg ocpp.Message) (json.RawMessage, error) {
+func (h *InboundCallHandler) Handle(cpID string, msg message.Message) (json.RawMessage, error) {
 	// Get the protocol for this charge point to parse/build payloads
 	cp, ok := h.runtime.GetChargePoint(cpID)
 	if !ok {

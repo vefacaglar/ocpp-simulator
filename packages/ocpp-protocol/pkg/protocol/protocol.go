@@ -1,22 +1,29 @@
-package ocpp
+// Package protocol defines the version-agnostic OCPP protocol interface,
+// the CP-initiated request input types, the CSMS-initiated request types,
+// and the Factory that maps a version string to a Protocol implementation.
+// The internal domain model (transactions, connectors, state machines) never
+// crosses this boundary; only spec-exact wire payloads do. See plan.md §2b.
+package protocol
 
 import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
 )
 
 type Protocol interface {
 	Version() string
 
 	// CP-initiated: build outbound CALL messages
-	BuildBootNotification(ctx context.Context, input BootNotificationInput) (Message, error)
-	BuildHeartbeat(ctx context.Context) (Message, error)
-	BuildStatusNotification(ctx context.Context, input StatusNotificationInput) (Message, error)
-	BuildAuthorize(ctx context.Context, input AuthorizeInput) (Message, error)
-	BuildStartTransaction(ctx context.Context, input StartTransactionInput) (Message, error)
-	BuildMeterValues(ctx context.Context, input MeterValuesInput) (Message, error)
-	BuildStopTransaction(ctx context.Context, input StopTransactionInput) (Message, error)
+	BuildBootNotification(ctx context.Context, input BootNotificationInput) (message.Message, error)
+	BuildHeartbeat(ctx context.Context) (message.Message, error)
+	BuildStatusNotification(ctx context.Context, input StatusNotificationInput) (message.Message, error)
+	BuildAuthorize(ctx context.Context, input AuthorizeInput) (message.Message, error)
+	BuildStartTransaction(ctx context.Context, input StartTransactionInput) (message.Message, error)
+	BuildMeterValues(ctx context.Context, input MeterValuesInput) (message.Message, error)
+	BuildStopTransaction(ctx context.Context, input StopTransactionInput) (message.Message, error)
 
 	// CSMS-initiated: parse inbound CALL request payloads
 	ParseRemoteStartTransactionRequest(payload json.RawMessage) (*RemoteStartTransactionRequest, error)
@@ -62,9 +69,9 @@ type StartTransactionInput struct {
 }
 
 type MeterValuesInput struct {
-	ConnectorID  int
+	ConnectorID   int
 	TransactionID *int
-	MeterValues  []MeterValue
+	MeterValues   []MeterValue
 }
 
 type MeterValue struct {
@@ -129,4 +136,26 @@ type ConfigurationKey struct {
 	Key      string  `json:"key"`
 	Readonly bool    `json:"readonly"`
 	Value    *string `json:"value,omitempty"`
+}
+
+// Factory maps a version string ("1.6J", "2.0.1", ...) to a registered
+// Protocol implementation. main() in each backend service registers the
+// versions it supports at startup.
+type Factory struct {
+	protocols map[string]Protocol
+}
+
+func NewFactory() *Factory {
+	return &Factory{
+		protocols: make(map[string]Protocol),
+	}
+}
+
+func (f *Factory) Register(p Protocol) {
+	f.protocols[p.Version()] = p
+}
+
+func (f *Factory) Create(version string) (Protocol, bool) {
+	p, ok := f.protocols[version]
+	return p, ok
 }

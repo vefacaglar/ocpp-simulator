@@ -11,9 +11,9 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/user/ocpp-simulator/apps/api/internal/common"
 	"github.com/user/ocpp-simulator/apps/api/internal/db"
-	"github.com/user/ocpp-simulator/apps/api/internal/ocpp"
 	"github.com/user/ocpp-simulator/apps/api/internal/realtime"
 	"github.com/user/ocpp-simulator/apps/api/internal/simulator"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
 )
 
 var upgrader = websocket.Upgrader{
@@ -409,7 +409,7 @@ func (s *Server) handleRemoteStart(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[API] RemoteStart cpID=%s idTag=%s connectorID=%v", cpID, req.IDTag, req.ConnectorID)
 
-	status, err := s.runtime.HandleRemoteStartTransaction(cpID, &ocpp.RemoteStartTransactionRequest{
+	status, err := s.runtime.HandleRemoteStartTransaction(cpID, &protocol.RemoteStartTransactionRequest{
 		IDTag:       req.IDTag,
 		ConnectorID: req.ConnectorID,
 	})
@@ -436,7 +436,7 @@ func (s *Server) handleRemoteStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, err := s.runtime.HandleRemoteStopTransaction(cpID, &ocpp.RemoteStopTransactionRequest{
+	status, err := s.runtime.HandleRemoteStopTransaction(cpID, &protocol.RemoteStopTransactionRequest{
 		TransactionID: req.TransactionID,
 	})
 	if err != nil {

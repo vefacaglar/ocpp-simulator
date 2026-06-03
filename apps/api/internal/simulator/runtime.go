@@ -10,9 +10,10 @@ import (
 
 	"github.com/user/ocpp-simulator/apps/api/internal/common"
 	"github.com/user/ocpp-simulator/apps/api/internal/db"
-	"github.com/user/ocpp-simulator/apps/api/internal/ocpp"
-	"github.com/user/ocpp-simulator/apps/api/internal/ocpp/v16"
 	"github.com/user/ocpp-simulator/apps/api/internal/realtime"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
+	v16 "github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/v16"
 )
 
 type ConnectorRuntime struct {
@@ -34,13 +35,13 @@ type Runtime struct {
 	mu              sync.RWMutex
 	chargePoints    map[string]*ChargePointInstance
 	eventBus        *realtime.EventBus
-	factory         *ocpp.Factory
+	factory         *protocol.Factory
 	transactionRepo *db.TransactionRepo
 	messageLogRepo  *db.MessageLogRepo
 	connectorRepo   *db.ConnectorRepo
 }
 
-func NewRuntime(eventBus *realtime.EventBus, factory *ocpp.Factory, txRepo *db.TransactionRepo, msgRepo *db.MessageLogRepo, connRepo *db.ConnectorRepo) *Runtime {
+func NewRuntime(eventBus *realtime.EventBus, factory *protocol.Factory, txRepo *db.TransactionRepo, msgRepo *db.MessageLogRepo, connRepo *db.ConnectorRepo) *Runtime {
 	return &Runtime{
 		chargePoints:    make(map[string]*ChargePointInstance),
 		eventBus:        eventBus,
@@ -280,7 +281,7 @@ func (r *Runtime) StartTransaction(cpID string, connectorID int, idTag string) e
 	cp.Mu.Unlock()
 
 	// Send StartTransaction via OCPP
-	msg, err := client.protocol.BuildStartTransaction(context.Background(), ocpp.StartTransactionInput{
+	msg, err := client.protocol.BuildStartTransaction(context.Background(), protocol.StartTransactionInput{
 		ConnectorID: connectorID,
 		IDTag:       idTag,
 		MeterStart:  meterStart,
@@ -300,7 +301,7 @@ func (r *Runtime) StartTransaction(cpID string, connectorID int, idTag string) e
 	return nil
 }
 
-func (r *Runtime) HandleStartTransactionResponse(cpID string, msg ocpp.Message) {
+func (r *Runtime) HandleStartTransactionResponse(cpID string, msg message.Message) {
 	resp, err := v16.ParseStartTransactionResponse(msg.Payload)
 	if err != nil {
 		log.Printf("[%s] parse StartTransaction.conf: %v", cpID, err)
@@ -412,7 +413,7 @@ func (r *Runtime) StopTransaction(cpID string, connectorID int, reason string) e
 	}
 
 	// Send StopTransaction
-	msg, err := client.protocol.BuildStopTransaction(context.Background(), ocpp.StopTransactionInput{
+	msg, err := client.protocol.BuildStopTransaction(context.Background(), protocol.StopTransactionInput{
 		TransactionID: numericID,
 		MeterStop:     meterStop,
 		Timestamp:     time.Now().UTC(),
@@ -485,12 +486,12 @@ func (r *Runtime) SendMeterValues(cpID string, connectorID int) error {
 
 	currentMeter := cr.MeterGen.CurrentMeterWh()
 
-	msg, err := client.protocol.BuildMeterValues(context.Background(), ocpp.MeterValuesInput{
+	msg, err := client.protocol.BuildMeterValues(context.Background(), protocol.MeterValuesInput{
 		ConnectorID:   connectorID,
 		TransactionID: &numericID,
-		MeterValues: []ocpp.MeterValue{{
+		MeterValues: []protocol.MeterValue{{
 			Timestamp: time.Now().UTC(),
-			SampledValue: []ocpp.SampledValue{
+			SampledValue: []protocol.SampledValue{
 				{Value: fmt.Sprintf("%d", currentMeter), Measurand: "Energy.Active.Import.Register", Unit: "Wh"},
 			},
 		}},
@@ -568,7 +569,7 @@ func (r *Runtime) publishEvent(eventType, cpID string, connectorID *int, message
 	})
 }
 
-func (r *Runtime) handleOCPPResponse(cpID string, action string, msg ocpp.Message) {
+func (r *Runtime) handleOCPPResponse(cpID string, action string, msg message.Message) {
 	switch action {
 	case "StartTransaction":
 		r.HandleStartTransactionResponse(cpID, msg)
@@ -576,7 +577,7 @@ func (r *Runtime) handleOCPPResponse(cpID string, action string, msg ocpp.Messag
 }
 
 // HandleRemoteStartTransaction processes a CSMS-initiated RemoteStartTransaction command.
-func (r *Runtime) HandleRemoteStartTransaction(cpID string, req *ocpp.RemoteStartTransactionRequest) (string, error) {
+func (r *Runtime) HandleRemoteStartTransaction(cpID string, req *protocol.RemoteStartTransactionRequest) (string, error) {
 	r.mu.RLock()
 	cp, ok := r.chargePoints[cpID]
 	r.mu.RUnlock()
@@ -671,7 +672,7 @@ func (r *Runtime) HandleRemoteStartTransaction(cpID string, req *ocpp.RemoteStar
 }
 
 // HandleRemoteStopTransaction processes a CSMS-initiated RemoteStopTransaction command.
-func (r *Runtime) HandleRemoteStopTransaction(cpID string, req *ocpp.RemoteStopTransactionRequest) (string, error) {
+func (r *Runtime) HandleRemoteStopTransaction(cpID string, req *protocol.RemoteStopTransactionRequest) (string, error) {
 	r.mu.RLock()
 	cp, ok := r.chargePoints[cpID]
 	r.mu.RUnlock()
@@ -725,7 +726,7 @@ func (r *Runtime) HandleRemoteStopTransaction(cpID string, req *ocpp.RemoteStopT
 }
 
 // HandleReset processes a CSMS-initiated Reset command.
-func (r *Runtime) HandleReset(cpID string, req *ocpp.ResetRequest) (string, error) {
+func (r *Runtime) HandleReset(cpID string, req *protocol.ResetRequest) (string, error) {
 	r.mu.RLock()
 	cp, ok := r.chargePoints[cpID]
 	r.mu.RUnlock()
@@ -840,7 +841,7 @@ func (r *Runtime) HandleChangeConfiguration(cpID string, key, value string) (str
 }
 
 // HandleGetConfiguration processes a CSMS-initiated GetConfiguration command.
-func (r *Runtime) HandleGetConfiguration(cpID string, keys []string) ([]ocpp.ConfigurationKey, []string, error) {
+func (r *Runtime) HandleGetConfiguration(cpID string, keys []string) ([]protocol.ConfigurationKey, []string, error) {
 	r.mu.RLock()
 	cp, ok := r.chargePoints[cpID]
 	r.mu.RUnlock()
@@ -870,10 +871,10 @@ func (r *Runtime) HandleGetConfiguration(cpID string, keys []string) ([]ocpp.Con
 
 	if len(keys) == 0 {
 		// Return all keys
-		var configKeys []ocpp.ConfigurationKey
+		var configKeys []protocol.ConfigurationKey
 		for k, v := range defaultConfig {
 			val := v
-			configKeys = append(configKeys, ocpp.ConfigurationKey{
+			configKeys = append(configKeys, protocol.ConfigurationKey{
 				Key:      k,
 				Readonly: false,
 				Value:    &val,
@@ -882,13 +883,13 @@ func (r *Runtime) HandleGetConfiguration(cpID string, keys []string) ([]ocpp.Con
 		return configKeys, nil, nil
 	}
 
-	var configKeys []ocpp.ConfigurationKey
+	var configKeys []protocol.ConfigurationKey
 	var unknownKeys []string
 
 	for _, k := range keys {
 		if v, ok := defaultConfig[k]; ok {
 			val := v
-			configKeys = append(configKeys, ocpp.ConfigurationKey{
+			configKeys = append(configKeys, protocol.ConfigurationKey{
 				Key:      k,
 				Readonly: false,
 				Value:    &val,

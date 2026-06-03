@@ -3,5 +3,6 @@ go 1.26.3
 use (
 	./apps/api
 	./apps/csms
+	./packages/ocpp-protocol
 	./packages/ocpp-schemas
 )

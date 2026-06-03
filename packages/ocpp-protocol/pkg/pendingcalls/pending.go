@@ -1,4 +1,6 @@
-package ocpp
+// Package pendingcalls tracks in-flight CALL messages so an inbound
+// CALLRESULT or CALLERROR can be correlated back to the originating action.
+package pendingcalls
 
 import (
 	"sync"
@@ -12,28 +14,28 @@ type PendingCall struct {
 	TimeoutAt time.Time
 }
 
-type PendingCallRegistry struct {
+type Registry struct {
 	mu    sync.RWMutex
 	calls map[string]PendingCall
 }
 
-func NewPendingCallRegistry() *PendingCallRegistry {
-	return &PendingCallRegistry{
+func New() *Registry {
+	return &Registry{
 		calls: make(map[string]PendingCall),
 	}
 }
 
-func (r *PendingCall) IsExpired() bool {
-	return time.Now().After(r.TimeoutAt)
+func (c *PendingCall) IsExpired() bool {
+	return time.Now().After(c.TimeoutAt)
 }
 
-func (r *PendingCallRegistry) Register(call PendingCall) {
+func (r *Registry) Register(call PendingCall) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls[call.UniqueID] = call
 }
 
-func (r *PendingCallRegistry) Resolve(uniqueID string) (PendingCall, bool) {
+func (r *Registry) Resolve(uniqueID string) (PendingCall, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	call, ok := r.calls[uniqueID]
@@ -43,7 +45,7 @@ func (r *PendingCallRegistry) Resolve(uniqueID string) (PendingCall, bool) {
 	return call, ok
 }
 
-func (r *PendingCallRegistry) Expired() []PendingCall {
+func (r *Registry) Expired() []PendingCall {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var expired []PendingCall

@@ -31,16 +31,17 @@ func NewRegistry() *Registry {
 }
 
 // Register stores a new Connection. If a connection for the same CP
-// id already exists, the existing one is returned along with
-// errAlreadyRegistered (defined in broker.go) so the caller can
-// decide what to do (typically: close the new WS, log, reject the
-// upgrade). The registry never silently overwrites.
-func (r *Registry) Register(c *Connection) (*Connection, error) {
+// id already exists, the existing one is gracefully disconnected
+// (unsubscribed and closed), and the new connection takes its place.
+// This enforces a single active session per charge point ID at the
+// gateway level.
+func (r *Registry) Register(c *Connection) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if existing, ok := r.conns[c.ChargePointID]; ok {
-		return existing, errAlreadyRegistered
+	existing, ok := r.conns[c.ChargePointID]
+	if ok {
+		delete(r.conns, c.ChargePointID)
 	}
+
 	if c.Outbound == nil {
 		c.Outbound = make(chan []byte, 64)
 	}
@@ -48,7 +49,16 @@ func (r *Registry) Register(c *Connection) (*Connection, error) {
 		c.closed = make(chan struct{})
 	}
 	r.conns[c.ChargePointID] = c
-	return nil, nil
+	r.mu.Unlock()
+
+	if ok {
+		existing.CloseOnce.Do(func() {
+			if existing.Unsubscribe != nil {
+				existing.Unsubscribe()
+			}
+			close(existing.closed)
+		})
+	}
 }
 
 // Lookup returns the Connection for chargePointID, or (nil, false).

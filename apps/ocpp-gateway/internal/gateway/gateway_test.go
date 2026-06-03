@@ -125,11 +125,10 @@ func TestGateway_PerCPIsolation(t *testing.T) {
 	}
 }
 
-// Test 4 — Connect is idempotent up to a point: a second Connect for
-// the same CP id must NOT silently overwrite the existing connection.
-// The existing connection must keep working and the new attempt must
-// be rejected.
-func TestGateway_Connect_RejectsDuplicate(t *testing.T) {
+// Test 4 — Connect enforces a single active session: a second Connect
+// for the same CP id gracefully closes the existing connection and
+// replaces it with the new one.
+func TestGateway_Connect_ReplacesExisting(t *testing.T) {
 	broker := newFakeBroker()
 	g, _ := New(broker)
 
@@ -137,25 +136,33 @@ func TestGateway_Connect_RejectsDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Connect: %v", err)
 	}
-	existing, err := g.Connect("CP-DUP")
-	if err == nil {
-		t.Fatal("expected duplicate Connect to return an error")
+
+	second, err := g.Connect("CP-DUP")
+	if err != nil {
+		t.Fatalf("second Connect: %v", err)
 	}
-	if existing != first {
-		t.Errorf("error must carry the existing Connection; got %p want %p", existing, first)
-	}
+
 	if _, ok := g.Registry.Lookup("CP-DUP"); !ok {
-		t.Fatal("existing connection must still be registered after rejected duplicate")
+		t.Fatal("new connection must be registered after replacing duplicate")
 	}
-	// The original connection still works.
-	broker.deliver(OutTopic("CP-DUP"), []byte("still-alive"))
+
+	// The first connection should be closed.
 	select {
-	case got := <-first.Outbound:
-		if string(got) != "still-alive" {
-			t.Errorf("first connection got wrong frame: %q", got)
+	case <-first.Closed():
+		// expected
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("first connection was not closed after duplicate Connect")
+	}
+
+	// The new connection should receive messages.
+	broker.deliver(OutTopic("CP-DUP"), []byte("new-session-alive"))
+	select {
+	case got := <-second.Outbound:
+		if string(got) != "new-session-alive" {
+			t.Errorf("new connection got wrong frame: %q", got)
 		}
 	case <-time.After(50 * time.Millisecond):
-		t.Fatal("first connection stopped receiving after duplicate attempt")
+		t.Fatal("new connection stopped receiving after duplicate attempt")
 	}
 }
 

@@ -51,10 +51,9 @@ func New(broker Broker) (*Gateway, error) {
 // the /out topic. The handler pushes the bytes into the connection's
 // Outbound channel; the WS writer goroutine drains it.
 //
-// Register is the single source of truth for the duplicate-id check.
 // If a previous connection for the same charge point id is still
-// registered, Register returns it and we unsubscribe the broker
-// subscription we just created.
+// registered, the registry gracefully closes the old connection and
+// replaces it with this new one, enforcing a single active session.
 func (g *Gateway) Connect(chargePointID string) (*Connection, error) {
 	conn := &Connection{
 		ChargePointID: chargePointID,
@@ -75,13 +74,7 @@ func (g *Gateway) Connect(chargePointID string) (*Connection, error) {
 	}
 	conn.Unsubscribe = unsubscribe
 
-	if existing, regErr := g.Registry.Register(conn); regErr != nil {
-		// Duplicate id: roll back the subscription we just
-		// created. The existing connection stays in place and
-		// remains fully functional.
-		unsubscribe()
-		return existing, regErr
-	}
+	g.Registry.Register(conn)
 
 	log.Printf("[ocpp-gateway] connected charge point %s", chargePointID)
 	return conn, nil

@@ -80,11 +80,11 @@ dev-backend\:csms:
 	@cd apps/csms && go run ./cmd/server
 
 down:
-	@echo "Stopping backend stack..."
-	@docker compose down
+	@echo "Stopping backend stack (containers kept, use 'make down-v' to remove)..."
+	@docker compose stop
 
 down-v:
-	@echo "Stopping backend stack and removing volumes (DBs)..."
+	@echo "Stopping backend stack and removing containers + volumes (DBs)..."
 	@docker compose down -v
 
 # kill-ports frees ports owned by the Makefile. The Vue dev
@@ -117,8 +117,8 @@ help:
 	@echo "  make dev-web             - vite only (assumes backends are up)"
 	@echo "  make dev-backend:<svc>   - one Go service via go run, bypasses compose"
 	@echo "                             (simulator-api, ocpp-gateway, ocpp-core, message-processor, csms)"
-	@echo "  make down                - stop the compose stack"
-	@echo "  make down-v              - stop + remove volumes (DBs)"
+	@echo "  make down                - stop containers (keeps them, fast restart)"
+	@echo "  make down-v              - stop + remove containers & volumes (DBs)"
 	@echo "  make kill-ports          - free vite port ($(VITE_PORT))"
 	@echo "  make test                - run all 7 Go module tests with GOWORK=off"
 	@echo "  make wire-dump           - run a fake CP and capture MQTT frames"

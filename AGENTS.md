@@ -30,11 +30,14 @@ Keep these communication paths separate:
 Local charge point actions such as plug/unplug, Authorize, StartTransaction, StopTransaction, MeterValues, and StatusNotification must be emitted by that simulated charge point over its own OCPP WebSocket. Do not reroute those actions through generic runtime command APIs as the primary behavior.
 
 Target service split:
-1. **ocpp-gateway**: WebSocket edge only. Charge points connect here. It publishes inbound raw OCPP frames to MQTT `ocpp/{chargePointId}/in`, subscribes to `ocpp/{chargePointId}/out`, and writes outbound raw OCPP frames back to the correct WebSocket.
-2. **message-processor**: MQTT consumer/router. It reads `ocpp/+/in`, parses the raw OCPP-J array, dispatches by message type/action, and publishes raw CALLRESULT/CALLERROR/CALL frames to `ocpp/{chargePointId}/out`.
-3. **ocpp-core**: database and business owner. In the first phase it persists inbound/outbound raw OCPP logs. Later it owns transaction state, connector state, authorization decisions, session history, and remote command APIs.
+1. **simulator-api**: UI management API. It owns simulator configuration such as charge point and connector create/delete/list. It is independent from OCPP message processing and must not generate OCPP frames.
+2. **ocpp-gateway**: WebSocket edge only. Charge points connect here. It publishes inbound raw OCPP frames to MQTT `ocpp/{chargePointId}/in`, subscribes to `ocpp/{chargePointId}/out`, and writes outbound raw OCPP frames back to the correct WebSocket.
+3. **message-processor**: MQTT consumer/router. It reads `ocpp/+/in`, parses the raw OCPP-J array, dispatches by message type/action, and publishes raw CALLRESULT/CALLERROR/CALL frames to `ocpp/{chargePointId}/out`.
+4. **ocpp-core**: database and business owner. In the first phase it persists inbound/outbound raw OCPP logs. Later it owns transaction state, connector state, authorization decisions, session history, and remote command APIs.
 
 MQTT payloads must also stay raw OCPP-J arrays. Topic names carry `chargePointId` and direction; payloads must not be wrapped.
+
+Local development should move toward Docker Compose: MQTT broker, `simulator-api`, `ocpp-gateway`, `message-processor`, `ocpp-core`, and `web` should be runnable together. Service Dockerfiles should stay service-scoped.
 
 Runtime vs. persistence: active connections, timers, loops, and transaction state live **in memory**; SQLite stores config + history. SQLite is not the source of truth for live runtime state.
 
@@ -44,7 +47,11 @@ Transaction identity is **dual** (`plan.md` §7.6, §8.4, §13): every transacti
 
 ```
 apps/
-  api/              # Go API + simulator runtime (cmd/server, internal/{api,app,db,migrations,simulator,ocpp,realtime,config,common})
+  api/              # Current combined Go API/runtime; target replacement is simulator-api + gateway/processor/core
+  simulator-api/    # Target: UI management API for charge point/connector config, no OCPP frames
+  ocpp-gateway/     # Target: WebSocket edge, MQTT bridge, no business
+  message-processor/ # Target: MQTT OCPP router/response publisher
+  ocpp-core/        # Target: DB + business owner; starts with logs
   web/              # Vue 3 + Vite + TS + Pinia
   csms/             # Mock OCPP Central System (standalone test server, no DB)
 packages/

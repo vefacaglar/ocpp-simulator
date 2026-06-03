@@ -4,15 +4,17 @@ A local-first, web-based OCPP charge point simulator for developers testing EV c
 
 ## Stack
 
-- **Backend**: Go (current API/runtime + mock CSMS; target split: `ocpp-gateway`, `message-processor`, `ocpp-core`)
+- **Backend**: Go (current API/runtime + mock CSMS; target split: `simulator-api`, `ocpp-gateway`, `message-processor`, `ocpp-core`)
 - **Frontend**: Vue 3 + Vite + TypeScript + Pinia
 - **Messaging**: MQTT target for gateway/processor/core communication
 - **Database**: SQLite now; `ocpp-core` owns its own DB in the target split
+- **Local orchestration**: Docker Compose target for MQTT + web + backend services
 - **Monorepo**: Turborepo + pnpm + Go workspace
 
 Target message flow:
 
 ```text
+Web UI -> simulator-api -> simulator config DB
 Charge Point WS -> ocpp-gateway -> MQTT ocpp/{chargePointId}/in
 MQTT ocpp/{chargePointId}/in -> message-processor -> MQTT ocpp/{chargePointId}/out
 MQTT ocpp/{chargePointId}/out -> ocpp-gateway -> Charge Point WS
@@ -39,7 +41,7 @@ pnpm install
 make dev
 ```
 
-`make dev` first frees ports `7070`, `8080`, `5173` (via `make kill-ports`) and then starts all three services in parallel:
+Current `make dev` first frees ports `7070`, `8080`, `5173` (via `make kill-ports`) and then starts the current combined dev services in parallel:
 - Vue dashboard: http://localhost:5173
 - Go API: http://localhost:7070
 - Mock CSMS: ws://localhost:8080/ocpp
@@ -84,7 +86,11 @@ cd packages/ocpp-schemas && go test ./...
 
 ```
 apps/
-  api/              # Current Go API + simulator runtime; will split into gateway/processor/core
+  api/              # Current Go API + simulator runtime; will split into target services
+  simulator-api/    # Target UI management API for charge point/connector config
+  ocpp-gateway/     # Target WebSocket edge and MQTT bridge
+  message-processor/ # Target MQTT OCPP router/response publisher
+  ocpp-core/        # Target DB/business service; logs first
   web/              # Vue 3 dashboard
   csms/             # Mock OCPP Central System
 packages/

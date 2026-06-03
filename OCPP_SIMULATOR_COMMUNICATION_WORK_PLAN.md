@@ -26,6 +26,7 @@ Current accepted model:
 
 Target service split:
 
+- `simulator-api`: UI management API. It owns simulator configuration such as charge point and connector create/delete/list. It is independent from OCPP message processing and must not generate OCPP frames.
 - `ocpp-gateway`: WebSocket edge. It accepts charge point connections, publishes inbound raw OCPP frames to MQTT, subscribes to outbound MQTT topics, and writes outbound raw frames to the correct WebSocket.
 - `message-processor`: MQTT consumer/router. It reads inbound raw frames, routes by OCPP message type/action, and publishes raw response frames.
 - `ocpp-core`: DB and business owner. First phase is message logging only; later it owns transaction state, connector state, authorization, remote commands, and session history.
@@ -193,6 +194,18 @@ The event bus is for internal decoupling only. It must not erase the distinction
 
 ## Required Simulator Modules
 
+### simulator-api
+
+The simulator API is the UI-facing management service. It is independent from OCPP message processing.
+
+Responsibilities:
+
+- Create, list, update, and delete simulated charge points.
+- Create, list, update, and delete connector definitions.
+- Store simulator configuration and dashboard read models.
+- Provide UI management endpoints.
+- Avoid OCPP frame generation and OCPP business decisions.
+
 ### ocpp-gateway
 
 The gateway is the WebSocket edge service. It has one job: keep charge point WebSocket connections alive and bridge raw OCPP frames to/from MQTT.
@@ -231,6 +244,21 @@ Responsibilities:
 - First phase: subscribe to `ocpp/+/in` and `ocpp/+/out`, then persist raw message logs.
 - Later phases: own transaction state, connector state, authorization decisions, session history, and remote command APIs.
 - Never expose internal business models on the OCPP WebSocket or MQTT payload.
+
+### Docker Compose
+
+Local development should be runnable with Docker Compose.
+
+Expected services:
+
+- `mqtt`
+- `simulator-api`
+- `ocpp-gateway`
+- `message-processor`
+- `ocpp-core`
+- `web`
+
+The compose setup is orchestration only. It must not introduce wrapper payloads or change the raw OCPP-J frame contract.
 
 ### Charge Point Session
 

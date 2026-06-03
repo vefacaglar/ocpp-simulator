@@ -13,8 +13,9 @@ The application runs locally and consists of:
 - Go API backend
 - Go simulator runtime
 - per-charge-point OCPP WebSocket session proxy for Central System communication
-- target split into `ocpp-gateway`, `message-processor`, and `ocpp-core`
+- target split into `simulator-api`, `ocpp-gateway`, `message-processor`, and `ocpp-core`
 - MQTT message bus for local service-to-service OCPP frame routing
+- Docker Compose local orchestration
 - Go WebSocket server for live UI updates
 - Go mock OCPP Central System (a standalone test server, not connected to any real backend)
 - Vue web client
@@ -28,6 +29,10 @@ This is an OCPP simulator first. The web UI is the control surface for simulated
 The target architecture is event-driven and service-split:
 
 ```txt
+Web UI
+  -> simulator-api
+  -> simulator config DB
+
 Charge Point
   -> WebSocket
   -> ocpp-gateway
@@ -42,6 +47,8 @@ MQTT ocpp/{chargePointId}/in and /out
   -> ocpp-core
   -> DB
 ```
+
+`simulator-api` owns UI-facing simulator management such as charge point and connector create/delete/list. It is independent from OCPP message processing and must not generate OCPP wire frames.
 
 `ocpp-gateway` owns WebSocket connections only. `message-processor` owns MQTT consumption, OCPP frame routing, and response publication. `ocpp-core` owns persistence and business state; first it logs raw inbound/outbound messages, later it owns transactions, connector state, authorization decisions, remote command APIs, and session history.
 
@@ -171,6 +178,7 @@ Recommended structure:
 ocpp-simulator/
 ├─ apps/
 │  ├─ api/              # Current Go API + simulator runtime
+│  ├─ simulator-api/    # Target: UI management API, no OCPP wire messages
 │  ├─ ocpp-gateway/     # Target: WebSocket edge, no business
 │  ├─ message-processor/ # Target: MQTT consumer/router and response publisher
 │  ├─ ocpp-core/        # Target: DB + business owner; starts with message logs
@@ -184,6 +192,7 @@ ocpp-simulator/
 │
 ├─ docs/
 ├─ docker/
+├─ docker-compose.yml   # Target: local MQTT + web + backend services
 ├─ go.work              # Go workspace linking apps/api, apps/csms, packages/ocpp-schemas
 ├─ turbo.json
 ├─ package.json
@@ -211,6 +220,15 @@ Preferred direction:
 - Avoid over-frameworking the project.
 
 ### 5.4 Target Service Responsibilities
+
+`simulator-api`:
+
+- Serves the UI management API.
+- Owns simulator configuration for charge points and connectors.
+- Supports create, list, update, delete for simulated units and connector definitions.
+- May expose read models needed by the dashboard.
+- Does not parse, produce, wrap, or route OCPP wire frames.
+- Does not own OCPP transaction, authorization, or connector business decisions.
 
 `ocpp-gateway`:
 
@@ -250,6 +268,17 @@ ocpp/{ocppVersion}/{chargePointId}/out
 ```
 
 MQTT payload convention: payloads are raw OCPP-J JSON array frames only. Metadata such as `chargePointId`, direction, and optional protocol version belongs in the topic or broker metadata, not in a payload wrapper.
+
+Docker Compose target:
+
+- `mqtt`: local MQTT broker, Mosquitto is enough for the first phase.
+- `simulator-api`: UI management API and simulator config DB.
+- `ocpp-gateway`: WebSocket edge, depends on `mqtt`.
+- `message-processor`: MQTT consumer/router, depends on `mqtt`.
+- `ocpp-core`: DB/business service, depends on `mqtt`.
+- `web`: Vue UI, talks to `simulator-api` and realtime/read APIs.
+
+Each backend service should have its own Dockerfile or build target. Compose is for local development and repeatable demos; it should not change the OCPP wire contract.
 
 ### 5.3 Frontend
 

@@ -165,8 +165,13 @@ export const useChargePointStore = defineStore('chargePoint', () => {
   async function connectChargePoint() {
     if (!selectedId.value) return
     const cpId = selectedId.value
+    // Already connected — nothing to do.
+    if (isConnected(cpId)) return
+    // Stale state left over from a previous session (e.g. the
+    // socket closed but the runtime entry was never removed).
+    // Clean it up so we start fresh.
     if (cpStates.value.has(cpId)) {
-      return
+      disconnectWS(cpId)
     }
     // Ensure the charge point detail is loaded so we know the
     // OCPP version to advertise in the WebSocket subprotocol
@@ -194,15 +199,9 @@ export const useChargePointStore = defineStore('chargePoint', () => {
         selectChargePoint(cpId)
       },
       onClose: () => {
-        if (runtime.heartbeatTimer) {
-          clearTimeout(runtime.heartbeatTimer)
-          runtime.heartbeatTimer = null
-        }
-        if (runtime.meterValuesTimer) {
-          clearInterval(runtime.meterValuesTimer)
-          runtime.meterValuesTimer = null
-        }
-        runtime.registration = 'disconnected'
+        // Full teardown: stop auto-reconnect in GatewayClient
+        // and remove the runtime so a manual Connect starts fresh.
+        disconnectWS(cpId)
       },
       onError: () => {
         runtime.registration = 'disconnected'

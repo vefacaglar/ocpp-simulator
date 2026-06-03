@@ -16,6 +16,7 @@ type Connection struct {
 	Outbound      chan []byte
 	CloseOnce     sync.Once
 	closed        chan struct{}
+	closeWS       func()
 }
 
 // Registry tracks all active CP connections. Access is guarded by mu

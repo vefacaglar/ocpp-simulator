@@ -42,6 +42,7 @@ func (g *Gateway) WSHandler() http.Handler {
 
 		cp, err := g.Connect(cpID)
 		if err != nil {
+			log.Printf("[ocpp-gateway] connect failed for %s: %v", cpID, err)
 			_ = conn.WriteControl(
 				websocket.CloseMessage,
 				websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()),
@@ -50,6 +51,7 @@ func (g *Gateway) WSHandler() http.Handler {
 			_ = conn.Close()
 			return
 		}
+		defer g.Disconnect(cpID)
 
 		go g.pumpOutbound(cp, conn)
 		g.pumpInbound(r.Context(), cp, conn)

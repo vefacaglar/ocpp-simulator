@@ -2,13 +2,17 @@
   "name": "ocpp-simulator",
   "private": true,
   "scripts": {
-    "dev": "turbo dev",
-    "dev:api": "cd apps/api && go run ./cmd/server",
+    "dev:stack": "docker compose up -d --wait mqtt ocpp-core message-processor ocpp-gateway simulator-api",
     "dev:web": "pnpm --filter web dev",
+    "dev:simulator-api": "cd apps/simulator-api && go run ./cmd/server",
+    "dev:ocpp-gateway": "cd apps/ocpp-gateway && go run ./cmd/gateway",
+    "dev:ocpp-core": "cd apps/ocpp-core && go run ./cmd/core",
+    "dev:message-processor": "cd apps/message-processor && go run ./cmd/processor",
     "dev:csms": "cd apps/csms && go run ./cmd/server",
-    "build": "turbo build",
-    "lint": "turbo lint",
-    "test": "turbo test"
+    "dev": "make dev",
+    "down": "docker compose down",
+    "down:v": "docker compose down -v",
+    "test": "make test"
   },
   "devDependencies": {
     "turbo": "^2"

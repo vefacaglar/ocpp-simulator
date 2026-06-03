@@ -64,12 +64,29 @@ docker run --rm --network ocpp-simulator_default -v "$PWD/scripts:/scripts" \
   python:3.12-alpine sh -c "pip install --quiet websockets && python3 /scripts/fake_cp.py CP-WIRE"
 ```
 
-### Legacy combined dev (T22 pre-split path, kept for back-compat)
+### Local dev with vite HMR + backends in compose
+
+The default dev workflow: `make dev` brings up the 5 backends in
+docker compose (mqtt, simulator-api, ocpp-gateway,
+message-processor, ocpp-core) and then runs the Vue dev server
+with hot-reload. The web container is intentionally excluded
+so the UI sees source edits without a rebuild.
 
 ```bash
-pnpm install
-make dev
+make dev                # backends in compose + vite at :5173
+make down               # tear down the backend stack
+make dev-stack          # backends only (no UI)
+make dev-web            # vite only (assumes backends are up)
+make dev-backend:simulator-api    # single Go service via go run,
+make dev-backend:ocpp-gateway      # bypasses compose. Each target
+make dev-backend:ocpp-core         # uses the env vars that match the
+make dev-backend:message-processor  # compose topology.
+make dev-backend:csms
+make test               # 7 Go module tests with GOWORK=off
+make wire-dump          # run a fake CP, capture raw OCPP frames
 ```
+
+Run `make help` for the full list.
 
 ## Per-module build & test
 

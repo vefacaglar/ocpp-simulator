@@ -19,6 +19,8 @@ VITE_PORT := 5173
 #   mqtt:1883, simulator-api:7070, ocpp-gateway:7080,
 #   ocpp-core:7090, message-processor:7091, web:5173 (vite)
 dev: kill-ports
+	@echo "Cleaning up any lingering backend containers..."
+	@docker compose down mqtt ocpp-core message-processor ocpp-gateway simulator-api 2>/dev/null || true
 	@echo "Starting backend stack via docker compose..."
 	@docker compose up -d mqtt ocpp-core message-processor ocpp-gateway simulator-api
 	@echo ""

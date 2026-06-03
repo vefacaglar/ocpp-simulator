@@ -21,8 +21,8 @@ VITE_PORT := 5173
 dev: kill-ports
 	@echo "Cleaning up any lingering backend containers..."
 	@docker compose down mqtt ocpp-core message-processor ocpp-gateway simulator-api 2>/dev/null || true
-	@echo "Starting backend stack via docker compose..."
-	@docker compose up -d postgres mqtt ocpp-core message-processor ocpp-gateway simulator-api
+	@echo "Building and starting backend stack via docker compose..."
+	@docker compose up -d --build postgres mqtt ocpp-core message-processor ocpp-gateway simulator-api
 	@echo ""
 	@echo "Backend ports:"
 	@echo "  postgres:5432, mqtt:1883, simulator-api:7070, ocpp-gateway:7080,"
@@ -39,8 +39,8 @@ dev: kill-ports
 # this if you want to develop the UI separately or hit the
 # backends directly with curl.
 dev-stack:
-	@echo "Bringing up backend stack via docker compose..."
-	@docker compose up -d --wait postgres mqtt ocpp-core message-processor ocpp-gateway simulator-api
+	@echo "Building and starting backend stack via docker compose..."
+	@docker compose up -d --build --wait postgres mqtt ocpp-core message-processor ocpp-gateway simulator-api
 	@echo ""
 	@docker compose ps
 

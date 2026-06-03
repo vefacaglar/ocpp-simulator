@@ -3,34 +3,25 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
-	"log"
 	"net/http"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/user/ocpp-simulator/apps/simulator-api/internal/common"
 	"github.com/user/ocpp-simulator/apps/simulator-api/internal/db"
-	"github.com/user/ocpp-simulator/apps/simulator-api/internal/realtime"
 )
-
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
 
 type Server struct {
 	mux             *http.ServeMux
 	db              *sql.DB
-	hub             *realtime.Hub
 	chargePointRepo *db.ChargePointRepo
 	connectorRepo   *db.ConnectorRepo
 	settingsRepo    *db.SettingsRepo
 }
 
-func NewServer(database *sql.DB, hub *realtime.Hub) *Server {
+func NewServer(database *sql.DB) *Server {
 	s := &Server{
 		mux:             http.NewServeMux(),
 		db:              database,
-		hub:             hub,
 		chargePointRepo: db.NewChargePointRepo(database),
 		connectorRepo:   db.NewConnectorRepo(database),
 		settingsRepo:    db.NewSettingsRepo(database),
@@ -53,8 +44,6 @@ func (s *Server) registerRoutes() {
 
 	s.mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	s.mux.HandleFunc("PUT /api/settings", s.handleUpdateSettings)
-
-	s.mux.HandleFunc("GET /api/realtime", s.handleRealtime)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +124,6 @@ func (s *Server) handleCreateChargePoint(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	s.hub.PublishChargePointEvent(cp.ID, "created")
 	writeJSON(w, http.StatusCreated, cp)
 }
 
@@ -182,7 +170,6 @@ func (s *Server) handleDeleteChargePoint(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "failed to delete charge point")
 		return
 	}
-	s.hub.PublishChargePointEvent(id, "deleted")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -269,60 +256,6 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
-}
-
-func (s *Server) handleRealtime(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("websocket upgrade error: %v", err)
-		return
-	}
-	defer conn.Close()
-
-	var subscribedCP string
-	ch := make(chan realtime.Event, 64)
-
-	for {
-		_, msg, err := conn.ReadMessage()
-		if err != nil {
-			if subscribedCP != "" {
-				s.hub.UnsubscribeChargePoint(subscribedCP, ch)
-			}
-			return
-		}
-
-		var cmd struct {
-			Type          string `json:"type"`
-			ChargePointID string `json:"chargePointId"`
-		}
-		if err := json.Unmarshal(msg, &cmd); err != nil {
-			continue
-		}
-
-		switch cmd.Type {
-		case "subscribe":
-			if subscribedCP != "" {
-				s.hub.UnsubscribeChargePoint(subscribedCP, ch)
-			}
-			subscribedCP = cmd.ChargePointID
-			ch = s.hub.SubscribeChargePoint(subscribedCP)
-			go func() {
-				for event := range ch {
-					if len(event.RawFrame) > 0 {
-						conn.WriteMessage(1, event.RawFrame)
-					} else {
-						data, _ := json.Marshal(event)
-						conn.WriteMessage(1, data)
-					}
-				}
-			}()
-		case "unsubscribe":
-			if subscribedCP != "" {
-				s.hub.UnsubscribeChargePoint(subscribedCP, ch)
-				subscribedCP = ""
-			}
-		}
-	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

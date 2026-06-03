@@ -3,7 +3,6 @@ module github.com/user/ocpp-simulator/apps/simulator-api
 go 1.26.3
 
 require (
-	github.com/gorilla/websocket v1.5.3
 	github.com/pressly/goose/v3 v3.27.1
 	modernc.org/sqlite v1.51.0
 )

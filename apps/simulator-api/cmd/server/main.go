@@ -7,7 +7,6 @@ import (
 	"github.com/user/ocpp-simulator/apps/simulator-api/internal/api"
 	"github.com/user/ocpp-simulator/apps/simulator-api/internal/config"
 	"github.com/user/ocpp-simulator/apps/simulator-api/internal/db"
-	"github.com/user/ocpp-simulator/apps/simulator-api/internal/realtime"
 )
 
 func main() {
@@ -23,10 +22,7 @@ func main() {
 		log.Fatalf("failed to migrate database: %v", err)
 	}
 
-	bus := realtime.NewEventBus()
-	hub := realtime.NewHub(bus)
-
-	server := api.NewServer(database, hub)
+	server := api.NewServer(database)
 
 	addr := ":" + cfg.Port
 	log.Printf("OCPP Simulator API listening on %s", addr)

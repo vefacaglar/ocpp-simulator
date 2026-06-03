@@ -52,7 +52,12 @@ function handleAuthorize(connectorId: number) {
           <div class="field"><span class="label">Name</span><span>{{ store.selectedDetail.chargePoint.name }}</span></div>
           <div class="field"><span class="label">Version</span><span>{{ store.selectedDetail.chargePoint.ocppVersion }}</span></div>
           <div class="field"><span class="label">URL</span><span class="url">{{ store.selectedDetail.chargePoint.centralSystemUrl }}</span></div>
-          <div class="field"><span class="label">Status</span><span class="status" :class="store.selectedDetail.chargePoint.status">{{ store.selectedDetail.chargePoint.status }}</span></div>
+          <div class="field">
+            <span class="label">Status</span>
+            <span class="status" :class="store.getConnectionStatus(store.selectedDetail.chargePoint.id)">
+              {{ store.getConnectionStatus(store.selectedDetail.chargePoint.id) }}
+            </span>
+          </div>
           <div v-if="connected" class="field"><span class="label">Registration</span><span class="reg-state" :class="regState">{{ regState }}</span></div>
         </div>
 

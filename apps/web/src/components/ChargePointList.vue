@@ -33,7 +33,7 @@ async function onDelete(id: string, e: Event) {
       </div>
       <div v-else class="cp-items">
         <div
-          v-for="cp in store.chargePoints"
+          v-for="cp in store.chargePointsWithStatus"
           :key="cp.id"
           class="cp-item"
           :class="{ selected: cp.id === store.selectedId }"

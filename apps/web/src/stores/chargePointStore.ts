@@ -90,6 +90,17 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     return cpStates.value.has(cpId) && cpStates.value.get(cpId)!.client.isOpen
   }
 
+  function getConnectionStatus(cpId: string): 'disconnected' | 'connecting' | 'connected' {
+    return isConnected(cpId) ? 'connected' : 'disconnected'
+  }
+
+  const chargePointsWithStatus = computed(() => {
+    return chargePoints.value.map(cp => ({
+      ...cp,
+      status: getConnectionStatus(cp.id)
+    }))
+  })
+
   // ─── CRUD (simulator-api) ─────────────────────────────────────────────
 
   async function loadChargePoints() {
@@ -705,6 +716,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
 
   return {
     chargePoints,
+    chargePointsWithStatus,
     selectedId,
     selectedDetail,
     loading,
@@ -731,5 +743,6 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     sendConnectorMeterValues,
     setConnectorStatus,
     isConnected,
+    getConnectionStatus,
   }
 })

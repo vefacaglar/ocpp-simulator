@@ -20,7 +20,7 @@ func (r *ConnectorRepo) ListByChargePoint(ctx context.Context, chargePointID str
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, charge_point_id, evse_id, connector_number, status, created_at, updated_at
 		FROM connectors
-		WHERE charge_point_id = ? AND is_deleted = 0
+		WHERE charge_point_id = $1 AND is_deleted = false
 		ORDER BY connector_number
 	`, chargePointID)
 	if err != nil {
@@ -46,7 +46,7 @@ func (r *ConnectorRepo) Create(ctx context.Context, c common.Connector) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO connectors (charge_point_id, evse_id, connector_number, status, is_enabled, is_deleted, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 1, 0, ?, ?)
+		VALUES ($1, $2, $3, $4, true, false, $5, $6)
 	`, c.ChargePointID, c.EVSEID, c.ConnectorNumber, c.Status, now, now)
 	return err
 }
@@ -54,7 +54,7 @@ func (r *ConnectorRepo) Create(ctx context.Context, c common.Connector) error {
 func (r *ConnectorRepo) Delete(ctx context.Context, id int) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := r.db.ExecContext(ctx, `
-		UPDATE connectors SET is_deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?
+		UPDATE connectors SET is_deleted = true, deleted_at = $1, updated_at = $2 WHERE id = $3
 	`, now, now, id)
 	return err
 }
@@ -64,7 +64,7 @@ func (r *ConnectorRepo) NextConnectorNumber(ctx context.Context, chargePointID s
 	err := r.db.QueryRowContext(ctx, `
 		SELECT COALESCE(MAX(connector_number), 0) + 1
 		FROM connectors
-		WHERE charge_point_id = ? AND is_deleted = 0
+		WHERE charge_point_id = $1 AND is_deleted = false
 	`, chargePointID).Scan(&num)
 	return num, err
 }

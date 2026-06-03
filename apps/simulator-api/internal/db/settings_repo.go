@@ -40,7 +40,7 @@ func (r *SettingsRepo) GetAll(ctx context.Context) ([]Setting, error) {
 
 func (r *SettingsRepo) Get(ctx context.Context, key string) (string, error) {
 	var value string
-	err := r.db.QueryRowContext(ctx, `SELECT value FROM app_settings WHERE key = ?`, key).Scan(&value)
+	err := r.db.QueryRowContext(ctx, `SELECT value FROM app_settings WHERE key = $1`, key).Scan(&value)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -50,8 +50,8 @@ func (r *SettingsRepo) Get(ctx context.Context, key string) (string, error) {
 func (r *SettingsRepo) Set(ctx context.Context, key, value string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
-		ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?
+		INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, $3)
+		ON CONFLICT(key) DO UPDATE SET value = $4, updated_at = $5
 	`, key, value, now, value, now)
 	return err
 }

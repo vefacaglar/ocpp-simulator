@@ -18,12 +18,12 @@ import (
 )
 
 func main() {
-	dbPath := envOr("OCPP_CORE_DB", "ocpp-core.db")
+	databaseURL := envOr("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/ocpp_core?sslmode=disable")
 	brokerURL := envOr("MQTT_BROKER_URL", "tcp://localhost:1883")
 	httpAddr := envOr("HTTP_ADDR", ":7090")
 	clientID := envOr("MQTT_CLIENT_ID", "ocpp-core")
 
-	database, err := db.Open(dbPath)
+	database, err := db.Open(databaseURL)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
@@ -62,7 +62,7 @@ func main() {
 	srv := api.NewServer(transactionSvc, csmsSvc, rtRepo, txRepo)
 	httpSrv := &http.Server{Addr: httpAddr, Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
-		log.Printf("[ocpp-core] HTTP on %s (mqtt=%s db=%s)", httpAddr, brokerURL, dbPath)
+		log.Printf("[ocpp-core] HTTP on %s (mqtt=%s db=%s)", httpAddr, brokerURL, databaseURL)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)
 		}

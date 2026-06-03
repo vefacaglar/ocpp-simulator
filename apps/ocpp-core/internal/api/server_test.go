@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"sync"
 	"testing"
 
@@ -44,13 +43,12 @@ func (b *fakeBroker) snapshot(topic string) [][]byte {
 	return out
 }
 
-// makeServer wires a Server backed by a fresh sqlite DB and a
+// makeServer wires a Server backed by the shared postgres test DB and a
 // fake broker. Tests don't need to start a real HTTP listener;
 // they use httptest.NewRecorder.
 func makeServer(t *testing.T) (*Server, *fakeBroker, *transaction.Service, func()) {
 	t.Helper()
-	dir := t.TempDir()
-	d, err := db.Open(filepath.Join(dir, "test.db"))
+	d, err := db.Open(db.TestDBURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +59,11 @@ func makeServer(t *testing.T) (*Server, *fakeBroker, *transaction.Service, func(
 	logs := db.NewMessageLogRepo(d)
 	rt := db.NewRuntimeEventRepo(d)
 	_ = logs
+
+	// Clean up state before test
+	for _, tbl := range []string{"transactions", "ocpp_message_logs", "runtime_events"} {
+		_, _ = d.ExecContext(context.Background(), "TRUNCATE TABLE "+tbl+" RESTART IDENTITY CASCADE")
+	}
 
 	br := newFakeBroker()
 	txSvc := transaction.NewService(repo)
@@ -151,14 +154,17 @@ func TestAPI_Start_ReusesCounterFromDB(t *testing.T) {
 	// First start populates the counter; a second server
 	// initialized from the same DB must continue from 2, proving
 	// restart-safety.
-	dir := t.TempDir()
-	d, err := db.Open(filepath.Join(dir, "shared.db"))
+	d, err := db.Open(db.TestDBURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer d.Close()
 	if err := db.Migrate(d); err != nil {
 		t.Fatal(err)
+	}
+	// Clean up before test
+	for _, tbl := range []string{"transactions", "ocpp_message_logs", "runtime_events"} {
+		_, _ = d.ExecContext(context.Background(), "TRUNCATE TABLE "+tbl+" RESTART IDENTITY CASCADE")
 	}
 	repo := db.NewTransactionRepo(d)
 	logs := db.NewMessageLogRepo(d)

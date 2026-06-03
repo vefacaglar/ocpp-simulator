@@ -3,7 +3,6 @@ package canonlog
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -15,13 +14,16 @@ import (
 
 func newTestService(t *testing.T) (*Service, *fakeBroker, *db.MessageLogRepo, func()) {
 	t.Helper()
-	dir := t.TempDir()
-	d, err := db.Open(filepath.Join(dir, "test.db"))
+	d, err := db.Open(db.TestDBURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Migrate(d); err != nil {
 		t.Fatal(err)
+	}
+	// Clean state
+	for _, tbl := range []string{"transactions", "ocpp_message_logs", "runtime_events"} {
+		_, _ = d.ExecContext(context.Background(), "TRUNCATE TABLE "+tbl+" RESTART IDENTITY CASCADE")
 	}
 	repo := db.NewMessageLogRepo(d)
 	broker := newFakeBroker()
@@ -64,9 +66,7 @@ func TestCanonicalLog_InboundAndOutbound_PersistedRaw(t *testing.T) {
 	respRaw, _ := c.Encode(resp)
 	broker.deliver(OutboundTopicPattern, "ocpp/CP-A/out", respRaw)
 
-	// Wait briefly for the persistence goroutines (Start's
-	// handlers are synchronous, but DB writes go through the
-	// driver which yields).
+	// Wait briefly for the persistence goroutines.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		list, err := repo.ListByChargePoint(context.Background(), "CP-A", 100)
@@ -149,7 +149,7 @@ func TestCanonicalLog_ChargePointIDFromTopic(t *testing.T) {
 	}
 
 	// Wait until both rows are visible. Allow up to 2s because
-	// writes are async through the SQLite driver.
+	// writes are async through the broker callback.
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		lx, _ := repo.ListByChargePoint(context.Background(), "CP-X", 100)

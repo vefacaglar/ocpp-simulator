@@ -1,6 +1,6 @@
 # OCPP Simulator — Agent Guide
 
-A local-first, web-based **OCPP charge point simulator** for developers testing EV charging backends. Go backend + Vue frontend + SQLite, in a Turborepo/pnpm + Go workspace monorepo. Targets OCPP 1.6J first, designed for OCPP 2.0.1 later.
+A local-first, web-based **OCPP charge point simulator** for developers testing EV charging backends. Go backend + Vue frontend + PostgreSQL, in a Turborepo/pnpm + Go workspace monorepo. Targets OCPP 1.6J first, designed for OCPP 2.0.1 later.
 
 The authoritative design lives in [`plan.md`](plan.md). Read it before non-trivial work. This file is the quick operational guide.
 
@@ -34,14 +34,14 @@ Target service split:
 1. **simulator-api**: UI management API only. It owns charge point/connector CRUD, settings, app config DB, `/api/realtime`, and `/api/health`. It MUST NOT generate, parse, proxy to another backend, or publish OCPP frames.
 2. **ocpp-gateway**: dumb WebSocket edge. Charge point clients connect here. It publishes inbound raw OCPP frames unchanged to MQTT `ocpp/{chargePointId}/in`, subscribes to `ocpp/{chargePointId}/out`, and writes outbound raw OCPP frames unchanged to the correct WebSocket. It MUST NOT own business state, connector state machines, meter generators, transactions, or DB writes.
 3. **message-processor**: response producer. It reads `ocpp/+/in`, parses raw OCPP-J arrays, responds to supported CP-to-server OCPP 1.6J CALLs, calls `ocpp-core` for business decisions such as Authorize/StartTransaction/StopTransaction, and publishes raw CALLRESULT/CALLERROR frames to `ocpp/{chargePointId}/out`. It has no DB and writes consume/publish audit events only to stdout/log.
-4. **ocpp-core**: canonical log and business owner. It owns `ocpp-core.db`, persists raw `ocpp/+/in` and `ocpp/+/out` topic messages as the source-of-truth OCPP log, answers message-processor business callbacks, initializes transaction numeric IDs from `MAX(numeric_id)`, and publishes CSMS-initiated CALLs to `ocpp/{chargePointId}/out`.
+4. **ocpp-core**: canonical log and business owner. It owns the `ocpp_core` database, persists raw `ocpp/+/in` and `ocpp/+/out` topic messages as the source-of-truth OCPP log, answers message-processor business callbacks, initializes transaction numeric IDs from `MAX(numeric_id)`, and publishes CSMS-initiated CALLs to `ocpp/{chargePointId}/out`.
 5. **web**: UI plus per-charge-point local OCPP simulation. It opens one WebSocket per simulated charge point to `ocpp-gateway`, owns client-side connector state, meter generation, and transaction holder state. Browser refresh losing local CP simulation state is an accepted local-simulator tradeoff.
 
 MQTT payloads must also stay raw OCPP-J arrays. Topic names carry `chargePointId` and direction; payloads must not be wrapped.
 
 Local development should move toward Docker Compose: MQTT broker, `simulator-api`, `ocpp-gateway`, `message-processor`, `ocpp-core`, and `web` should be runnable together. Service Dockerfiles should stay service-scoped.
 
-Runtime vs. persistence: active connections, timers, loops, and transaction state live **in memory**; SQLite stores config + history. SQLite is not the source of truth for live runtime state.
+Runtime vs. persistence: active connections, timers, loops, and transaction state live **in memory**; PostgreSQL stores config + history. PostgreSQL is not the source of truth for live runtime state.
 
 Transaction identity is **dual** (`plan.md` §7.6, §8.4, §13): every transaction has an internal GUID (`transactions.id`, also the 2.0.1 wire id) and a `numeric_id` (1.6J wire id, assigned asynchronously by the CSMS in `StartTransaction.conf`).
 
@@ -100,7 +100,7 @@ Default target ports/URLs: UI realtime `ws://localhost:7070/api/realtime`; OCPP 
 ## Working with tasks
 
 Work is tracked in [`tasks.md`](tasks.md) — the persistent handoff point between sessions/models. Read it first to see where things stand, update statuses as you go (`[ ]`→`[~]`→`[x]`), and keep it in sync with reality. Two parallel tracks:
-- **Simulator track**: bootstrap → SQLite/CRUD → runtime → realtime → OCPP client → transactions → UX.
+- **Simulator track**: bootstrap → PostgreSQL/CRUD → runtime → realtime → OCPP client → transactions → UX.
 - **CSMS/schema track**: csms skeleton → official schemas + validator → csms handlers → response schema tests. This track unblocks end-to-end testability and can advance in parallel.
 
 Respect task `blockedBy` dependencies; prefer lowest available ID. Do not mark a task complete with failing tests or partial implementation.

@@ -2,7 +2,6 @@ package transaction
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/db"
@@ -10,13 +9,16 @@ import (
 
 func newSvc(t *testing.T) (*Service, *db.TransactionRepo, func()) {
 	t.Helper()
-	dir := t.TempDir()
-	d, err := db.Open(filepath.Join(dir, "test.db"))
+	d, err := db.Open(db.TestDBURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Migrate(d); err != nil {
 		t.Fatal(err)
+	}
+	// Clean state
+	for _, tbl := range []string{"transactions", "ocpp_message_logs", "runtime_events"} {
+		_, _ = d.ExecContext(context.Background(), "TRUNCATE TABLE "+tbl+" RESTART IDENTITY CASCADE")
 	}
 	repo := db.NewTransactionRepo(d)
 	return NewService(repo), repo, func() { d.Close() }

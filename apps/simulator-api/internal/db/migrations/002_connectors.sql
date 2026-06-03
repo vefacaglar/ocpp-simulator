@@ -1,12 +1,12 @@
 -- +goose Up
 CREATE TABLE IF NOT EXISTS connectors (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                  SERIAL PRIMARY KEY,
     charge_point_id     TEXT NOT NULL,
     evse_id             INTEGER NOT NULL DEFAULT 1,
     connector_number    INTEGER NOT NULL,
     status              TEXT NOT NULL DEFAULT 'Available',
-    is_enabled          INTEGER NOT NULL DEFAULT 1,
-    is_deleted          INTEGER NOT NULL DEFAULT 0,
+    is_enabled          BOOLEAN NOT NULL DEFAULT true,
+    is_deleted          BOOLEAN NOT NULL DEFAULT false,
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL,
     deleted_at          TEXT NULL,

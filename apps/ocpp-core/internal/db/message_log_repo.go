@@ -52,7 +52,7 @@ func (r *MessageLogRepo) Create(ctx context.Context, m MessageLog) (string, erro
 		INSERT INTO ocpp_message_logs
 		  (id, charge_point_id, direction, ocpp_version, message_type, message_type_id, action, unique_id,
 		   transaction_uuid, transaction_numeric_id, payload_json, status, error_code, error_description, topic, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 	`,
 		m.ID, m.ChargePointID, m.Direction, m.OCPPVersion, m.MessageType, m.MessageTypeID, m.Action, m.UniqueID,
 		m.TransactionUUID, m.TransactionNumericID, m.PayloadJSON, m.Status, m.ErrorCode, m.ErrorDescription, m.Topic, m.CreatedAt)
@@ -71,7 +71,7 @@ func (r *MessageLogRepo) ListByChargePoint(ctx context.Context, chargePointID st
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, charge_point_id, direction, ocpp_version, message_type, message_type_id, action, unique_id,
 		       transaction_uuid, transaction_numeric_id, payload_json, status, error_code, error_description, topic, created_at
-		FROM ocpp_message_logs WHERE charge_point_id = ? ORDER BY created_at DESC LIMIT ?
+		FROM ocpp_message_logs WHERE charge_point_id = $1 ORDER BY created_at DESC LIMIT $2
 	`, chargePointID, limit)
 	if err != nil {
 		return nil, err

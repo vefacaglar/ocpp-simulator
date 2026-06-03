@@ -38,7 +38,7 @@ func (r *RuntimeEventRepo) Create(ctx context.Context, ev RuntimeEvent) (string,
 	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO runtime_events (id, charge_point_id, connector_number, event_type, severity, message, payload_json, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`,
 		ev.ID, ev.ChargePointID, ev.ConnectorNum, ev.EventType, ev.Severity, ev.Message, ev.PayloadJSON, ev.CreatedAt)
 	if err != nil {
@@ -54,8 +54,8 @@ func (r *RuntimeEventRepo) ListByChargePoint(ctx context.Context, chargePointID 
 	}
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, charge_point_id, connector_number, event_type, severity, message, payload_json, created_at
-		FROM runtime_events WHERE charge_point_id = ? OR charge_point_id IS NULL
-		ORDER BY created_at DESC LIMIT ?
+		FROM runtime_events WHERE charge_point_id = $1 OR charge_point_id IS NULL
+		ORDER BY created_at DESC LIMIT $2
 	`, chargePointID, limit)
 	if err != nil {
 		return nil, err

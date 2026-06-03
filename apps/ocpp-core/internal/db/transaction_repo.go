@@ -44,7 +44,7 @@ func (r *TransactionRepo) Create(ctx context.Context, t Transaction) (string, er
 	t.UpdatedAt = now
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO transactions (id, numeric_id, charge_point_id, evse_id, connector_number, id_tag, ocpp_version, status, start_meter_wh, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`, t.ID, t.NumericID, t.ChargePointID, t.EVSEID, t.ConnectorNumber, t.IDTag, t.OCPPVersion, t.Status, t.StartMeterWh, t.CreatedAt, t.UpdatedAt)
 	if err != nil {
 		return "", fmt.Errorf("insert transaction: %w", err)
@@ -62,8 +62,8 @@ func (r *TransactionRepo) AssignNumericID(ctx context.Context, id string, numeri
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE transactions
-		SET numeric_id = ?, status = ?, started_at = COALESCE(started_at, ?), updated_at = ?
-		WHERE id = ? AND numeric_id IS NULL
+		SET numeric_id = $1, status = $2, started_at = COALESCE(started_at, $3), updated_at = $4
+		WHERE id = $5 AND numeric_id IS NULL
 	`, numericID, status, now, now, id)
 	if err != nil {
 		return fmt.Errorf("assign numeric_id: %w", err)
@@ -77,15 +77,15 @@ func (r *TransactionRepo) AssignNumericID(ctx context.Context, id string, numeri
 
 func (r *TransactionRepo) UpdateStatus(ctx context.Context, id, status string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := r.db.ExecContext(ctx, `UPDATE transactions SET status = ?, updated_at = ? WHERE id = ?`, status, now, id)
+	_, err := r.db.ExecContext(ctx, `UPDATE transactions SET status = $1, updated_at = $2 WHERE id = $3`, status, now, id)
 	return err
 }
 
 func (r *TransactionRepo) Stop(ctx context.Context, id string, meterStop int, reason string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := r.db.ExecContext(ctx, `
-		UPDATE transactions SET status = 'stopped', stop_meter_wh = ?, stop_reason = ?, stopped_at = ?, updated_at = ?
-		WHERE id = ?
+		UPDATE transactions SET status = 'stopped', stop_meter_wh = $1, stop_reason = $2, stopped_at = $3, updated_at = $4
+		WHERE id = $5
 	`, meterStop, reason, now, now, id)
 	return err
 }
@@ -95,7 +95,7 @@ func (r *TransactionRepo) GetByID(ctx context.Context, id string) (*Transaction,
 	err := r.db.QueryRowContext(ctx, `
 		SELECT id, numeric_id, charge_point_id, evse_id, connector_number, id_tag, ocpp_version, status,
 		       started_at, stopped_at, start_meter_wh, stop_meter_wh, stop_reason, created_at, updated_at
-		FROM transactions WHERE id = ?
+		FROM transactions WHERE id = $1
 	`, id).Scan(&t.ID, &t.NumericID, &t.ChargePointID, &t.EVSEID, &t.ConnectorNumber, &t.IDTag, &t.OCPPVersion, &t.Status,
 		&t.StartedAt, &t.StoppedAt, &t.StartMeterWh, &t.StopMeterWh, &t.StopReason, &t.CreatedAt, &t.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -112,7 +112,7 @@ func (r *TransactionRepo) ListByChargePoint(ctx context.Context, chargePointID s
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, numeric_id, charge_point_id, evse_id, connector_number, id_tag, ocpp_version, status,
 		       started_at, stopped_at, start_meter_wh, stop_meter_wh, stop_reason, created_at, updated_at
-		FROM transactions WHERE charge_point_id = ? ORDER BY created_at DESC
+		FROM transactions WHERE charge_point_id = $1 ORDER BY created_at DESC
 	`, chargePointID)
 	if err != nil {
 		return nil, err

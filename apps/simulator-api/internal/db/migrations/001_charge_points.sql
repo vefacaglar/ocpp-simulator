@@ -4,9 +4,9 @@ CREATE TABLE IF NOT EXISTS charge_points (
     name                TEXT NOT NULL,
     ocpp_version        TEXT NOT NULL DEFAULT '1.6J',
     central_system_url  TEXT NOT NULL,
-    auto_connect        INTEGER NOT NULL DEFAULT 0,
-    is_enabled          INTEGER NOT NULL DEFAULT 1,
-    is_deleted          INTEGER NOT NULL DEFAULT 0,
+	auto_connect        BOOLEAN NOT NULL DEFAULT false,
+	is_enabled          BOOLEAN NOT NULL DEFAULT true,
+	is_deleted          BOOLEAN NOT NULL DEFAULT false,
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL,
     deleted_at          TEXT NULL

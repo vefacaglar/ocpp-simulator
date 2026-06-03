@@ -20,7 +20,7 @@ func (r *ChargePointRepo) List(ctx context.Context) ([]common.ChargePoint, error
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, name, ocpp_version, central_system_url, auto_connect, created_at, updated_at
 		FROM charge_points
-		WHERE is_deleted = 0
+		WHERE is_deleted = false
 		ORDER BY created_at DESC
 	`)
 	if err != nil {
@@ -49,7 +49,7 @@ func (r *ChargePointRepo) GetByID(ctx context.Context, id string) (*common.Charg
 	err := r.db.QueryRowContext(ctx, `
 		SELECT id, name, ocpp_version, central_system_url, auto_connect, created_at, updated_at
 		FROM charge_points
-		WHERE id = ? AND is_deleted = 0
+		WHERE id = $1 AND is_deleted = false
 	`, id).Scan(&cp.ID, &cp.Name, &cp.OCPPVersion, &cp.CentralSystemURL, &cp.AutoConnect, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (r *ChargePointRepo) Create(ctx context.Context, cp common.ChargePoint) err
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO charge_points (id, name, ocpp_version, central_system_url, auto_connect, is_enabled, is_deleted, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, true, false, $6, $7)
 	`, cp.ID, cp.Name, cp.OCPPVersion, cp.CentralSystemURL, cp.AutoConnect, now, now)
 	return err
 }
@@ -72,7 +72,7 @@ func (r *ChargePointRepo) Create(ctx context.Context, cp common.ChargePoint) err
 func (r *ChargePointRepo) Delete(ctx context.Context, id string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := r.db.ExecContext(ctx, `
-		UPDATE charge_points SET is_deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?
+		UPDATE charge_points SET is_deleted = true, deleted_at = $1, updated_at = $2 WHERE id = $3
 	`, now, now, id)
 	return err
 }

@@ -8,24 +8,24 @@
 # ports are managed by docker compose (see docker-compose.yml).
 VITE_PORT := 5173
 
-# dev is the v4.3 entry point. It brings up the 5 backends
-# (mqtt, ocpp-core, message-processor, ocpp-gateway,
+# dev is the v4.3 entry point. It brings up the 6 backends
+# (postgres, mqtt, ocpp-core, message-processor, ocpp-gateway,
 # simulator-api) in containers and then runs the Vue UI
 # outside the stack with hot-reload. The web container is
 # intentionally excluded so the UI sees source edits without
 # a rebuild.
 #
 # Resulting port map (all bound to localhost):
-#   mqtt:1883, simulator-api:7070, ocpp-gateway:7080,
+#   postgres:5432, mqtt:1883, simulator-api:7070, ocpp-gateway:7080,
 #   ocpp-core:7090, message-processor:7091, web:5173 (vite)
 dev: kill-ports
 	@echo "Cleaning up any lingering backend containers..."
 	@docker compose down mqtt ocpp-core message-processor ocpp-gateway simulator-api 2>/dev/null || true
 	@echo "Starting backend stack via docker compose..."
-	@docker compose up -d mqtt ocpp-core message-processor ocpp-gateway simulator-api
+	@docker compose up -d postgres mqtt ocpp-core message-processor ocpp-gateway simulator-api
 	@echo ""
 	@echo "Backend ports:"
-	@echo "  mqtt:1883, simulator-api:7070, ocpp-gateway:7080,"
+	@echo "  postgres:5432, mqtt:1883, simulator-api:7070, ocpp-gateway:7080,"
 	@echo "  ocpp-core:7090, message-processor:7091"
 	@echo ""
 	@echo "Waiting for backend health..."
@@ -40,7 +40,7 @@ dev: kill-ports
 # backends directly with curl.
 dev-stack:
 	@echo "Bringing up backend stack via docker compose..."
-	@docker compose up -d --wait mqtt ocpp-core message-processor ocpp-gateway simulator-api
+	@docker compose up -d --wait postgres mqtt ocpp-core message-processor ocpp-gateway simulator-api
 	@echo ""
 	@docker compose ps
 
@@ -61,7 +61,7 @@ dev-web: kill-ports
 # with a backslash so the rule works on a single colon.
 dev-backend\:simulator-api:
 	@echo "Starting simulator-api on :7070..."
-	@cd apps/simulator-api && OCPP_SIMULATOR_DB=$$PWD/ocpp-simulator.db PORT=7070 go run ./cmd/server
+	@cd apps/simulator-api && DATABASE_URL=postgres://postgres:postgres@localhost:5432/simulator_api?sslmode=disable PORT=7070 go run ./cmd/server
 
 dev-backend\:ocpp-gateway:
 	@echo "Starting ocpp-gateway on :7080..."
@@ -69,7 +69,7 @@ dev-backend\:ocpp-gateway:
 
 dev-backend\:ocpp-core:
 	@echo "Starting ocpp-core on :7090..."
-	@cd apps/ocpp-core && OCPP_CORE_DB=$$PWD/ocpp-core.db MQTT_BROKER_URL=tcp://localhost:1883 MQTT_CLIENT_ID=ocpp-core-local HTTP_ADDR=:7090 go run ./cmd/core
+	@cd apps/ocpp-core && DATABASE_URL=postgres://postgres:postgres@localhost:5432/ocpp_core?sslmode=disable MQTT_BROKER_URL=tcp://localhost:1883 MQTT_CLIENT_ID=ocpp-core-local HTTP_ADDR=:7090 go run ./cmd/core
 
 dev-backend\:message-processor:
 	@echo "Starting message-processor on :7091..."

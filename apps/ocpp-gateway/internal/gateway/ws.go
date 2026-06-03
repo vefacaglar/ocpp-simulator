@@ -87,8 +87,10 @@ func (g *Gateway) pumpInbound(ctx context.Context, cp *Connection, conn *websock
 		// matcher below.
 		msgType, payload, err := conn.ReadMessage()
 		if err != nil {
+			log.Printf("[ocpp-gateway] read error for %s: %v", cp.ChargePointID, err)
 			return
 		}
+		log.Printf("[ocpp-gateway] RECEIVED frame from %s: %s", cp.ChargePointID, string(payload))
 		if msgType != websocket.TextMessage {
 			// OCPP-J is text only; close on anything else.
 			_ = conn.WriteControl(
@@ -100,10 +102,9 @@ func (g *Gateway) pumpInbound(ctx context.Context, cp *Connection, conn *websock
 		}
 		if err := g.PublishInbound(cp.ChargePointID, payload); err != nil {
 			log.Printf("[ocpp-gateway] publish inbound for %s failed: %v", cp.ChargePointID, err)
-			// Drop the connection if the broker link is dead; the
-			// client will reconnect.
 			return
 		}
+		log.Printf("[ocpp-gateway] PUBLISHED to MQTT for %s", cp.ChargePointID)
 		select {
 		case <-ctx.Done():
 			return

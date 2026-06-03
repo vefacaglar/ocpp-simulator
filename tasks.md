@@ -87,7 +87,7 @@ Next available: **All tasks complete**.
   _Blocked by:_ T12
 
 - [x] **T14 — Protocol core test suite** 🔧
-  Concrete tests (plan §Phase 4): build→schema-validate for all 7 actions, CALL framing, decode (CALLRESULT/CALLERROR/malformed), round-trip, correlation (uniqueId match, `StartTransaction.conf`→`numeric_id`), golden `testdata` fixtures. `go test ./...` passes; deliberately non-spec payload rejected by validator.
+  Concrete tests (plan §Phase 4): build→schema-validate for all 7 actions, CALL framing, decode (CALLRESULT/CALLERROR/malformed), round-trip, correlation (uniqueId match, `StartTransaction.conf`→`numeric_id`), golden `testdata` fixtures. Protocol tests pass from their module directory with `go test ./...`; deliberately non-spec payload rejected by validator.
   _Blocked by:_ T13
 
 - [x] **T15 — CSMS happy-path handlers** 🛰️

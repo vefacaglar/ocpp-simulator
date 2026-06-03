@@ -637,7 +637,7 @@ Each charge point should store an OCPP version:
   "id": "CP-001",
   "name": "Demo Charge Point 1",
   "ocppVersion": "1.6J",
-  "centralSystemUrl": "ws://localhost:8080/ocpp",
+  "gatewayUrl": "ws://localhost:7080/ws",
   "connectorCount": 2,
   "autoConnect": false
 }
@@ -790,15 +790,18 @@ CP-002 -> WebSocket connection 2 -> ws://central-system/ocpp/CP-002
 CP-003 -> WebSocket connection 3 -> ws://central-system/ocpp/CP-003
 ```
 
-Current accepted implementation model for CP-initiated behavior:
+Target v4.3 implementation model for CP-initiated behavior:
 
 ```txt
-Vue control surface -> /api/ws/{chargePointId} -> centralSystemUrl/{chargePointId}
+Vue per-CP simulator -> ws://ocpp-gateway/ws/{chargePointId}
+ocpp-gateway -> MQTT ocpp/{chargePointId}/in
+message-processor/ocpp-core -> MQTT ocpp/{chargePointId}/out
+ocpp-gateway -> same Vue charge point WebSocket
 ```
 
 The UI may drive local device actions such as plug, unplug, Authorize, StartTransaction, StopTransaction, MeterValues, and StatusNotification. Those actions must be sent as OCPP frames over that unit-specific OCPP session. They must not be replaced by generic runtime command APIs as the primary behavior.
 
-This endpoint is not a shared transport. Opening `/api/ws/CP-001` and `/api/ws/CP-002` represents two separate simulated charge point sessions.
+This endpoint is not a shared transport. Opening `ws://ocpp-gateway/ws/CP-001` and `ws://ocpp-gateway/ws/CP-002` represents two separate simulated charge point sessions.
 
 ### 10.1 Connection URL
 
@@ -922,7 +925,7 @@ Unknown / unsupported actions reply with a CALLERROR (`NotImplemented` / `NotSup
 
 Every response the mock emits must be valid OCPP (section 2b). The mock depends on `packages/ocpp-schemas` and its tests validate each response against the official `...Response.json` schema (section 8.5).
 
-For CSMS-initiated testing, the mock CSMS may expose REST endpoints such as `POST /api/chargepoints/{id}/remote-start`. These endpoints represent an external actor asking the CSMS to send an OCPP CALL. The actual `RemoteStartTransaction`, `RemoteStopTransaction`, `Reset`, or similar command must still be sent by the mock CSMS over the target charge point's existing OCPP WebSocket.
+For v4.3 CSMS-initiated testing, `ocpp-core` exposes internal endpoints such as `POST /internal/remote-start`. These endpoints represent an external actor asking the core service to send an OCPP CALL. The actual `RemoteStartTransaction`, `RemoteStopTransaction`, `Reset`, or similar command must be published by `ocpp-core` as a raw CALL to `ocpp/{chargePointId}/out`, then forwarded by `ocpp-gateway` over the target charge point's existing OCPP WebSocket.
 
 ### 10b.5 Minimal Structure
 
@@ -948,20 +951,20 @@ apps/csms/
 
 ## 11. Realtime WebSocket for Vue UI
 
-The Go backend must also expose a WebSocket server for the Vue client.
+`simulator-api` must also expose a WebSocket server for Vue observation.
 
-This is separate from the unit-specific OCPP session proxy.
+This is separate from the unit-specific OCPP session handled by `ocpp-gateway`.
 
 There are three relevant communication paths:
 
 ```txt
-1. /api/ws/{chargePointId} -> OCPP Central System
-   Used for that unit's OCPP protocol traffic.
+1. ws://ocpp-gateway/ws/{chargePointId}
+   Used for that simulated unit's OCPP protocol traffic.
 
 2. /api/realtime
    Used for live logs and runtime state updates.
 
-3. apps/csms REST API -> target CP OCPP WebSocket
+3. ocpp-core internal API -> MQTT ocpp/{chargePointId}/out -> target CP WebSocket
    Used to simulate CSMS-initiated commands.
 ```
 
@@ -979,7 +982,7 @@ The Vue client connects to:
 ws://localhost:7070/api/realtime
 ```
 
-This realtime endpoint is observation-only. It must not be used as the OCPP transport and must not replace `/api/ws/{chargePointId}`.
+This realtime endpoint is observation-only. It must not be used as the OCPP transport and must not replace `ocpp-gateway` per-charge-point WebSocket sessions.
 
 ### 11.2 Subscription Model
 
@@ -1511,10 +1514,10 @@ settingsStore
 
 The frontend has two different WebSocket responsibilities:
 
-- `/api/ws/{chargePointId}` is the selected unit's OCPP session proxy. CP-initiated behavior is sent there as spec-exact OCPP frames.
+- `ws://ocpp-gateway/ws/{chargePointId}` is the selected unit's OCPP session. CP-initiated behavior is sent there as spec-exact OCPP frames.
 - `/api/realtime` is the live event/log/state layer.
 
-REST remains useful for CRUD, settings, history queries, and mock-CSMS test hooks, but it must not replace the unit's OCPP socket for local charge point behavior.
+REST remains useful for CRUD, settings, history queries, and `ocpp-core` internal business triggers, but it must not replace the unit's OCPP socket for local charge point behavior.
 
 ---
 

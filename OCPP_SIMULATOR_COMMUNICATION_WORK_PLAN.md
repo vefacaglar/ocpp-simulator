@@ -19,10 +19,11 @@ These layers can observe or command each other, but they must not be merged.
 
 Current accepted model:
 
-- CP-initiated actions such as plug, unplug, Authorize, StartTransaction, StopTransaction, MeterValues, and StatusNotification are driven from the simulator UI and sent over `GET /api/ws/{chargePointId}`. The API proxies that unit's OCPP frames to `centralSystemUrl/{chargePointId}`. This is the simulated charge point's OCPP session.
-- CSMS-initiated actions such as RemoteStartTransaction enter through the mock CSMS REST API and are sent by the mock CSMS over the target charge point's existing OCPP WebSocket.
+- CP-initiated actions such as plug, unplug, Authorize, StartTransaction, StopTransaction, MeterValues, and StatusNotification are driven from the simulator UI and sent by that simulated charge point over its own WebSocket connection to `ocpp-gateway`.
+- `ocpp-gateway` publishes inbound raw OCPP-J frames unchanged to `ocpp/{chargePointId}/in`, subscribes to `ocpp/{chargePointId}/out`, and writes outbound raw frames unchanged to the target charge point WebSocket.
+- CSMS-initiated actions such as RemoteStartTransaction enter through `ocpp-core` internal APIs. `ocpp-core` publishes the raw OCPP CALL to `ocpp/{chargePointId}/out`; the gateway only forwards it to the connected charge point.
 - `/api/realtime` is only for logs, state, and runtime events.
-- Unit ↔ CSMS traffic is raw OCPP-J JSON array frames only. Do not wrap OCPP messages in objects before sending over the OCPP WebSocket.
+- Unit ↔ CSMS traffic is raw OCPP-J JSON array frames only. Do not wrap OCPP messages in objects before sending over WebSocket or MQTT.
 
 Target service split:
 
@@ -87,7 +88,7 @@ The same rule applies to MQTT. Topics carry routing metadata; payloads remain ra
 
 ### 2. REST API must not transport OCPP messages
 
-REST endpoints are allowed for management actions and for test hooks that represent an external actor, especially the mock CSMS API.
+REST endpoints are allowed for management actions and for internal business callbacks. They must not become the transport for charge point OCPP messages.
 
 Allowed API responsibilities:
 
@@ -101,7 +102,7 @@ Allowed API responsibilities:
 - query stored logs
 - query transaction history
 - query connector status
-- ask the mock CSMS to send a CSMS-initiated OCPP CALL to a connected charge point
+- ask `ocpp-core` to produce a CSMS-initiated OCPP CALL and publish it as a raw frame to `ocpp/{chargePointId}/out`
 
 Forbidden API responsibilities:
 
@@ -112,16 +113,16 @@ Forbidden API responsibilities:
 - replacing a charge point's OCPP WebSocket with REST for StopTransaction
 - routing Central System commands through generic API message passing
 
-The API may proxy a unit-specific OCPP WebSocket or expose mock-CSMS command endpoints. The resulting OCPP message must still travel over the target charge point's OCPP WebSocket connection.
+`simulator-api` must not proxy OCPP WebSockets or publish OCPP frames. Only `ocpp-gateway` owns the charge point WebSocket edge, and only MQTT `ocpp/{chargePointId}/in|out` carries raw OCPP frames between gateway, processor, and core.
 
 Example:
 
 ```text
-UI opens /api/ws/CP-001
+Vue CP-001 opens ws://ocpp-gateway/ws/CP-001
         ↓
-API proxies that session to ws://central-system/ocpp/CP-001
+CP-001 plug-in action sends StatusNotification as raw OCPP-J frame
         ↓
-UI plug-in action causes CP-001 to send StatusNotification over that OCPP socket
+ocpp-gateway publishes the same raw frame to ocpp/CP-001/in
 ```
 
 Not:
@@ -136,7 +137,7 @@ API sends StatusNotification directly
 
 The frontend may use `/api/realtime` to observe logs, state changes, and live events.
 
-This realtime socket is not an OCPP socket. It is separate from `/api/ws/{chargePointId}`, which is the unit-specific OCPP session proxy.
+This realtime socket is not an OCPP socket. It is separate from `ws://ocpp-gateway/ws/{chargePointId}`, which is the unit-specific OCPP session.
 
 Correct UI stream usage:
 
@@ -169,7 +170,7 @@ If the Central System sends commands such as:
 
 They must arrive through the specific charge point WebSocket connection.
 
-The simulator must not fake these as local UI actions. The accepted test helper is the mock CSMS REST API: a caller asks the mock CSMS to send `RemoteStartTransaction`, then the mock CSMS sends the OCPP CALL over the charge point's WebSocket.
+The simulator must not fake these as local UI actions. In the v4.3 target, the accepted test/helper entrypoint is `ocpp-core`: a caller asks `ocpp-core` to produce `RemoteStartTransaction`, then `ocpp-core` publishes the raw CALL to `ocpp/{chargePointId}/out` and `ocpp-gateway` writes it to the charge point's WebSocket.
 
 ### 5. One internal event bus is allowed, but it is not the transport boundary
 

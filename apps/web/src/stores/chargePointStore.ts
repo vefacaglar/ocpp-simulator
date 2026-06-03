@@ -46,6 +46,7 @@ interface PendingCallInfo {
 
 export interface ChargePointRuntime {
   client: IGatewayClient
+  connectionStatus: 'disconnected' | 'connecting' | 'connected'
   registration: 'disconnected' | 'pending' | 'accepted' | 'rejected'
   heartbeatInterval: number | null
   heartbeatTimer: ReturnType<typeof setTimeout> | null
@@ -87,11 +88,11 @@ export const useChargePointStore = defineStore('chargePoint', () => {
   }
 
   function isConnected(cpId: string): boolean {
-    return cpStates.value.has(cpId) && cpStates.value.get(cpId)!.client.isOpen
+    return cpStates.value.get(cpId)?.connectionStatus === 'connected'
   }
 
   function getConnectionStatus(cpId: string): 'disconnected' | 'connecting' | 'connected' {
-    return isConnected(cpId) ? 'connected' : 'disconnected'
+    return cpStates.value.get(cpId)?.connectionStatus ?? 'disconnected'
   }
 
   const chargePointsWithStatus = computed(() => {
@@ -204,17 +205,17 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       chargePointId: cpId,
       ocppVersion,
       onOpen: () => {
+        runtime.connectionStatus = 'connected'
         runtime.registration = 'pending'
         sendBootNotification(cpId)
         loadChargePoints()
         selectChargePoint(cpId)
       },
       onClose: () => {
-        // Full teardown: stop auto-reconnect in GatewayClient
-        // and remove the runtime so a manual Connect starts fresh.
-        disconnectWS(cpId)
+        runtime.connectionStatus = 'disconnected'
       },
       onError: () => {
+        runtime.connectionStatus = 'disconnected'
         runtime.registration = 'disconnected'
         error.value = `Connection failed for ${cpId}`
       },
@@ -222,6 +223,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     })
     runtime = {
       client,
+      connectionStatus: 'connecting',
       registration: 'disconnected',
       heartbeatInterval: null,
       heartbeatTimer: null,

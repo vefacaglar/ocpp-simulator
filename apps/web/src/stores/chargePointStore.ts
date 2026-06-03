@@ -162,25 +162,33 @@ export const useChargePointStore = defineStore('chargePoint', () => {
 
   // ─── Per-CP WebSocket lifecycle (ocpp-gateway) ────────────────────────
 
-  function connectChargePoint() {
+  async function connectChargePoint() {
     if (!selectedId.value) return
     const cpId = selectedId.value
     if (cpStates.value.has(cpId)) {
       return
     }
+    // Ensure the charge point detail is loaded so we know the
+    // OCPP version to advertise in the WebSocket subprotocol
+    // header. selectChargePoint is idempotent and refreshes
+    // selectedDetail from simulator-api.
+    if (!selectedDetail.value || selectedDetail.value.chargePoint.id !== cpId) {
+      try {
+        await selectChargePoint(cpId)
+      } catch (e) {
+        // Fall through; if selectedDetail is still missing
+        // we'll fall back to '1.6J' below.
+      }
+    }
+    const ocppVersion =
+      selectedDetail.value?.chargePoint.ocppVersion ?? '1.6J'
 
-    // Build the runtime with a placeholder GatewayClient that
-    // will be replaced with the real one once we wire up the
-    // callbacks. The placeholder is never observed because
-    // client.connect() runs only after the swap.
     let runtime!: ChargePointRuntime
     const client = new GatewayClient({
       chargePointId: cpId,
+      ocppVersion,
       onOpen: () => {
         runtime.registration = 'pending'
-        // Send BootNotification immediately on connect. This is
-        // the OCPP 1.6J contract: the very first frame a CP
-        // sends after a fresh WebSocket open is BootNotification.
         sendBootNotification(cpId)
         loadChargePoints()
         selectChargePoint(cpId)

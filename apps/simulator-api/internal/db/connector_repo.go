@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/user/ocpp-simulator/apps/api/internal/common"
+	"github.com/user/ocpp-simulator/apps/simulator-api/internal/common"
 )
 
 type ConnectorRepo struct {

@@ -1,8 +1,9 @@
 go 1.26.3
 
 use (
-	./apps/api
+	./apps/simulator-api
 	./apps/csms
+	./apps/ocpp-gateway
 	./packages/ocpp-protocol
 	./packages/ocpp-schemas
 )

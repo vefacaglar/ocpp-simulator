@@ -136,17 +136,19 @@ Next available: **All tasks complete**.
   _Blocked by:_ T21
   _Notes:_ 6 paket çıkarıldı: `pkg/codec`, `pkg/message` (MessageTypeID/Message/ErrorCode/GenerateUniqueID), `pkg/protocol` (interface, tüm input/request types, Factory), `pkg/pendingcalls` (PendingCall + Registry), `pkg/v16` (Protocol impl + Parse*Response), `pkg/v201` (2.0.1 placeholder, `ErrNotImplemented` döner, `protocol.Protocol`'ü derleme-zamanı sağlar). apps/api yeni paketleri import edecek şekilde güncellendi; eski `internal/ocpp` silindi. Tüm go.mod'lar self-contained: `apps/api` ve `packages/ocpp-protocol` kendi `require`/`replace` direktifleriyle go.work olmadan da (`GOWORK=off`) build & test geçer.
 
-- [ ] **T23 — Split simulator-api from current apps/api** 🔧
+- [x] **T23 — Split simulator-api from current apps/api** 🔧
   Rename/extract the current combined API into `apps/simulator-api`. Keep CP/connector CRUD, settings, app config DB, `/api/realtime`, and `/api/health`. Remove OCPP frame generation/parsing, MQTT OCPP publishing, runtime transaction/meter/state ownership, and backend OCPP proxy responsibilities.
   _Acceptance:_ `cd apps/simulator-api && go test ./...`; UI management API still lists/creates/deletes CPs and connectors.
   _Blocked by:_ T22
+  _Notes:_ apps/api → apps/simulator-api rename; tüm internal/ocpp / internal/simulator / internal/app / internal/streams kaldırıldı; db/message_log_repo + db/transaction_repo + migrations 003/004/005 (transactions, ocpp_message_logs, runtime_events) kaldırıldı — bunlar T26’da ocpp-core’un kendi DB’sine taşınacak. Server endpoint’leri sadece CRUD + settings + versions + realtime + health; OCPP runtime endpoint’leri (connect/disconnect/boot/heartbeat/start-tx/stop-tx/meter-values/status/remote-start/remote-stop) ve `/api/ws/{id}` CSMS proxy kaldırıldı (T27’de Vue tarafı per-CP OCPP WebSocket’ine geçecek). go.mod OCPP-protocol bağımlılığı çıkarıldı. `cd apps/simulator-api && go build ./...` ve `GOWORK=off go test ./...` yeşil.
 
-- [ ] **T24 — Add ocpp-gateway dumb bridge** 🔧
+- [x] **T24 — Add ocpp-gateway dumb bridge** 🔧
   Create `apps/ocpp-gateway` with `/ws/{chargePointId}`. Maintain per-CP WebSocket connection registry, publish inbound raw OCPP frames unchanged to `ocpp/{chargePointId}/in`, subscribe to `ocpp/{chargePointId}/out`, and write outbound raw frames unchanged to the matching WebSocket. No DB, no business decisions, no state machine/MeterValueGenerator/transaction holder.
   _Acceptance:_ Gateway bridge tests prove raw frames are unchanged and each CP has isolated WebSocket handling.
   _Blocked by:_ T22
+  _Notes:_ apps/ocpp-gateway oluşturuldu — `/ws/{cpId}` per-CP WebSocket edge, `internal/gateway` altında `Broker` interface + paho MQTT implementasyonu, per-CP `Registry` (mutex korumalı `map[chargePointID]*Connection`), `pumpInbound` (WS→`ocpp/{cpId}/in`) ve `pumpOutbound` (`ocpp/{cpId}/out`→WS) goroutine’leri. Frame **byte-byte aynen** iletilir (parse yok, re-marshal yok, JSON canonicalization yok). Topic format: `ocpp/{cpId}/in`, `ocpp/{cpId}/out`. CP id path validation: `/`, `+`, `#` reddedilir (MQTT wildcard injection koruması). DB yok, OCPP protokol import’u yok. 8 unit test yeşil: raw passthrough, topic format, per-CP izolasyon (A↔B cross-talk yok), duplicate Connect reddi, Disconnect teardown (registry + unsubscribe + Closed()), unknown CP’de inbound reddi, late outbound delivery panic etmemesi, path validation. Hem go.work açık hem GOWORK=off build & test yeşil.
 
-- [ ] **T25 — Add message-processor response producer** 🛰️
+- [~] **T25 — Add message-processor response producer** 🛰️
   Create `apps/message-processor`. Subscribe to `ocpp/+/in`, parse raw OCPP-J frames, respond to supported CP-to-server 1.6J CALLs, call `ocpp-core` for business decisions such as Authorize/StartTransaction/StopTransaction, publish raw CALLRESULT/CALLERROR to `ocpp/{chargePointId}/out`, and write consume/publish audit events to stdout/log only.
   _Acceptance:_ `cd apps/message-processor && go test ./...`; no DB or `processor_events` table is introduced.
   _Blocked by:_ T22

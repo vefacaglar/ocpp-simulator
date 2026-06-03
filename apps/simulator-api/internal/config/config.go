@@ -14,7 +14,18 @@ func Load() Config {
 		port = "7070"
 	}
 
-	dbPath := os.Getenv("DB_PATH")
+	// DBPath resolution order:
+	//   1. OCPP_SIMULATOR_DB  (canonical, matches the *_DB naming
+	//      convention used by ocpp-core's OCPP_CORE_DB and the
+	//      docker-compose.yml volume mapping)
+	//   2. DB_PATH            (legacy, kept for back-compat with
+	//      older run scripts)
+	//   3. ocpp-simulator.db  (relative to the working directory;
+	//      useful for `go run` from the repo root)
+	dbPath := os.Getenv("OCPP_SIMULATOR_DB")
+	if dbPath == "" {
+		dbPath = os.Getenv("DB_PATH")
+	}
 	if dbPath == "" {
 		dbPath = "ocpp-simulator.db"
 	}

@@ -1,55 +1,54 @@
 # OCPP Simulator
 
-A local-first, web-based OCPP charge point simulator for developers testing EV charging backends.
+A local-first, web-based OCPP charge point simulator for developers testing EV charging backends. Targets OCPP 1.6J first; the v4.3 split is designed for OCPP 2.0.1 follow-up.
 
-## Stack
+## Architecture (v4.3)
 
-- **Backend**: Go (current API/runtime + mock CSMS; target split: `simulator-api`, `ocpp-gateway`, `message-processor`, `ocpp-core`)
-- **Frontend**: Vue 3 + Vite + TypeScript + Pinia
-- **Messaging**: MQTT target for gateway/processor/core communication
-- **Database**: SQLite now; `ocpp-core` owns its own DB in the target split
-- **Local orchestration**: Docker Compose target for MQTT + web + backend services
-- **Monorepo**: Turborepo + pnpm + Go workspace
-
-Target message flow:
-
-```text
-Web UI -> simulator-api -> simulator config DB
-Charge Point WS -> ocpp-gateway -> MQTT ocpp/{chargePointId}/in
-MQTT ocpp/{chargePointId}/in -> message-processor -> MQTT ocpp/{chargePointId}/out
-MQTT ocpp/{chargePointId}/out -> ocpp-gateway -> Charge Point WS
-MQTT in/out topics -> ocpp-core -> canonical DB logs + transactions/business
+```
+Vue per-CP simulator --[WS /ws/{cpId}]--> ocpp-gateway
+                                         |
+                                         v
+                              MQTT ocpp/{cpId}/in  +  ocpp/{cpId}/out
+                              (raw OCPP-J arrays, no wrapper)
+                              ^                                ^
+                              |                                |
+                       message-processor <---HTTP---> ocpp-core
+                       (response producer,         (canonical log +
+                        no DB, stdout audit)        transactions, business
+                                                     + CSMS-init CALL)
 ```
 
-MQTT payloads are raw OCPP-J JSON array frames only. `chargePointId` and direction live in the topic, not in a wrapper payload.
-`message-processor` has no DB; it writes consume/publish audit events to stdout/log only. Canonical message logs come from `ocpp-core` subscribing directly to raw `ocpp/+/in` and `ocpp/+/out`.
+| Service | Role | Has DB | Talks MQTT |
+|---|---|---|---|
+| `simulator-api` | UI management API (CRUD, settings, realtime, health) | yes (`ocpp-simulator.db`) | **no** |
+| `ocpp-gateway` | Dumb WebSocket↔MQTT bridge, per-CP `/ws/{cpId}` | no | yes |
+| `message-processor` | CP→server response producer; asks `ocpp-core` for business decisions | no (stdout audit only) | yes |
+| `ocpp-core` | Canonical log source; StartTransaction counter; CSMS-init CALL publisher | yes (`ocpp-core.db`) | yes |
+| `web` | Vue 3 UI; one WebSocket per simulated charge point to `ocpp-gateway` | no | no |
+| `csms` (optional) | Legacy mock Central System for end-to-end testing | no | no |
+
+The hard rules of the OCPP wire are enforced throughout:
+- WebSocket subprotocol is `ocpp1.6` or `ocpp2.0.1` (per negotiated version).
+- MQTT payloads are raw OCPP-J arrays (`[2, uid, action, payload]` etc.) — **no wrappers, no envelopes, no `{type:...}` objects**.
+- The `ocpp-protocol` package is the only place that parses/produces wire bytes; the `codec` package is its sole boundary.
+
+See `plan.md` for the full design rationale and `nextplan.md` for the v4.3 split decisions.
 
 ## Prerequisites
 
-- **Go 1.21+**
-- **Node.js 20+** and **pnpm** (`npm i -g pnpm`)
-- **make**
-  - macOS: ships with Xcode Command Line Tools
-  - Linux: `apt install make` / `dnf install make`
-- **lsof** (used by the port-kill step)
-  - macOS: preinstalled
-  - Linux: `apt install lsof` / `dnf install lsof`
+- **Go 1.21+** (workspace uses 1.26.3)
+- **Node.js 20+** and **pnpm 9.x** (Node 20's corepack ships a 11.x pnpm that crashes on `ERR_UNKNOWN_BUILTIN_MODULE`; pin to 9.15.4 — see `apps/web/Dockerfile`)
+- **Docker + Docker Compose** (for the v4.3 stack)
+- **make** (for the legacy combined dev path; not required for the v4.3 stack)
 
 ## Quick Start
 
-Local dev (current combined services):
-
-```bash
-pnpm install
-make dev
-```
-
-Local v4.3 stack via Docker Compose (6 services + optional csms profile):
+### v4.3 stack via Docker Compose
 
 ```bash
 docker compose up -d --build
 # UI:       http://localhost:5173
-# API:      http://localhost:7070
+# API:      http://localhost:7070/api
 # Gateway:  ws://localhost:7080/ws/{chargePointId}
 # Core:     http://localhost:7090
 # Processor health: http://localhost:7091
@@ -57,64 +56,47 @@ docker compose up -d --build
 docker compose --profile csms up csms -d  # optional mock CSMS on :8080
 ```
 
-Current `make dev` first frees ports `7070`, `8080`, `5173` (via `make kill-ports`) and then starts the current combined dev services in parallel:
-- Vue dashboard: http://localhost:5173
-- Go API: http://localhost:7070
-- Mock CSMS: ws://localhost:8080/ocpp
-
-> **Alternative:** `pnpm dev` runs the same services through Turborepo but does **not** clear the ports beforehand, so a stale process from a previous run can block startup. Prefer `make dev`.
-
-### Individual Services
-
-Each `make` target also kills its own port first, so restarting a single service is safe:
+End-to-end verification with a fake CP (writes to `docs/wire-dumps/t29-end-to-end-ocpp-frames.log`):
 
 ```bash
-make dev-api    # Go API only  (port 7070)
-make dev-csms   # Mock CSMS    (port 8080)
-make dev-web    # Vue only     (port 5173)
+docker compose up -d
+docker run --rm --network ocpp-simulator_default -v "$PWD/scripts:/scripts" \
+  python:3.12-alpine sh -c "pip install --quiet websockets && python3 /scripts/fake_cp.py CP-WIRE"
 ```
 
-Plain pnpm equivalents (no port cleanup):
+### Legacy combined dev (T22 pre-split path, kept for back-compat)
 
 ```bash
-pnpm dev:api
-pnpm dev:csms
-pnpm dev:web
+pnpm install
+make dev
 ```
 
-### Manual Port Cleanup
+## Per-module build & test
 
-If a service is running outside the dev scripts and is holding a port, free them by hand:
-
-```bash
-make kill-ports
-```
-
-### Go Build & Test
+Every Go module is self-contained: `go.mod` has the `require`/`replace` directives it needs, so tests work both with `go.work` and with `GOWORK=off` from inside the module directory.
 
 ```bash
-cd apps/simulator-api && go test ./...
-cd apps/ocpp-gateway && go test ./...
+cd apps/simulator-api   && go test ./...
+cd apps/ocpp-gateway    && go test ./...
 cd apps/message-processor && go test ./...
-cd apps/ocpp-core && go test ./...
-cd apps/csms && go test ./...
+cd apps/ocpp-core       && go test ./...
+cd apps/csms            && go test ./...
 cd packages/ocpp-protocol && go test ./...
-cd packages/ocpp-schemas && go test ./...
+cd packages/ocpp-schemas  && go test ./...
 ```
 
 ## Project Structure
 
 ```
 apps/
-  api/              # Current Go API + simulator runtime; will split into target services
-  simulator-api/    # Target UI management API/config DB/realtime
-  ocpp-gateway/     # Target dumb WebSocket edge and MQTT bridge
-  message-processor/ # Target CP-to-server response producer + stdout audit
-  ocpp-core/        # Target canonical logs + transactions/business
+  simulator-api/    # UI management API + config DB + /api/realtime
+  ocpp-gateway/     # Dumb WebSocket edge; per-CP /ws/{cpId}; raw frame bridge
+  message-processor/ # CP→server response producer; no DB; stdout audit
+  ocpp-core/        # Canonical log + transactions + business + CSMS-init CALL
   web/              # Vue 3 dashboard + per-CP OCPP simulation
   csms/             # Optional legacy/mock Central System
 packages/
-  ocpp-protocol/    # Target public OCPP codec/message/protocol package
+  ocpp-protocol/    # Public OCPP codec/message/protocol package
   ocpp-schemas/     # Official OCPP JSON schemas + validator
   shared/           # Shared TypeScript types
   config/           # Shared frontend config

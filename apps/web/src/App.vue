@@ -210,7 +210,7 @@ watch(
 @media (max-width: 1023px) {
   .content {
     grid-template-columns: 1fr;
-    padding: 0 16px calc(16px + 56px) 16px;
+    padding: 0 16px calc(16px + 56px + 16px + env(safe-area-inset-bottom)) 16px;
   }
 
   .panel-left,
@@ -227,13 +227,16 @@ watch(
   .mobile-tabs {
     display: flex;
     position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    left: 16px;
+    right: 16px;
     height: 56px;
     background: var(--bg-elevated);
-    border-top: 1px solid var(--border-strong);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
     z-index: 100;
+    overflow: hidden;
   }
 
   .mobile-tabs button {
@@ -272,7 +275,10 @@ watch(
     display: none;
   }
   
-  .content,
+  .content {
+    padding: 0 16px calc(16px + 56px + 16px + env(safe-area-inset-bottom)) 16px;
+  }
+  
   .settings-content {
     padding: 0 16px 16px 16px;
   }

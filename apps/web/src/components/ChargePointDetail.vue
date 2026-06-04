@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useChargePointStore } from '../stores/chargePointStore'
+import { useSettingsStore } from '../stores/settingsStore'
 
 const store = useChargePointStore()
+const settings = useSettingsStore()
 
 const connectors = computed(() => store.selectedDetail?.connectors ?? [])
 const connected = computed(() => store.selectedId ? store.isConnected(store.selectedId) : false)
@@ -51,7 +53,7 @@ function handleAuthorize(connectorId: number) {
           <div class="kv-list">
             <div class="kv"><span class="kv-label">Name</span><span class="kv-value">{{ store.selectedDetail.chargePoint.name }}</span></div>
             <div class="kv"><span class="kv-label">Version</span><span class="kv-value">{{ store.selectedDetail.chargePoint.ocppVersion }}</span></div>
-            <div class="kv"><span class="kv-label">URL</span><span class="kv-value mono">{{ store.selectedDetail.chargePoint.centralSystemUrl }}</span></div>
+            <div class="kv"><span class="kv-label">CSMS URL</span><span class="kv-value mono">{{ settings.centralSystemUrl }}</span></div>
             <div class="kv">
               <span class="kv-label">Status</span>
               <span class="status-pill" :class="store.getConnectionStatus(store.selectedDetail.chargePoint.id)">

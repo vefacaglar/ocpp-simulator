@@ -9,6 +9,7 @@ import {
   type ChargePointRecord,
   type ConnectorRecord,
 } from '../db/browserDb'
+import { DEFAULT_CENTRAL_SYSTEM_URL } from '../config/defaults'
 
 export type ChargePoint = ChargePointRecord
 export type Connector = ConnectorRecord
@@ -40,7 +41,7 @@ export async function createChargePoint(input: {
     id: input.id,
     name: input.name || input.id,
     ocppVersion: input.ocppVersion || '1.6J',
-    centralSystemUrl: input.centralSystemUrl || 'ws://localhost:8080/ocpp',
+    centralSystemUrl: input.centralSystemUrl || DEFAULT_CENTRAL_SYSTEM_URL,
     connectorCount: 0,
     autoConnect: false,
     status: 'disconnected',

@@ -7,6 +7,7 @@ import { buildResponse, UnknownActionError, NOT_IMPLEMENTED } from '../ocpp/call
 import { uniqueId } from '../ocpp/uniqueId'
 import { useRealtimeStore } from './realtimeStore'
 import { getAppState, setAppState } from '../db/browserDb'
+import { useSettingsStore } from './settingsStore'
 
 // ConnectorState mirrors the OCPP 1.6J connector status enum plus a
 // local-only `cablePluggedIn` flag the UI uses to drive the plug-in
@@ -62,6 +63,7 @@ export interface ChargePointRuntime {
 
 export const useChargePointStore = defineStore('chargePoint', () => {
   const realtimeStore = useRealtimeStore()
+  const settingsStore = useSettingsStore()
   const chargePoints = ref<ChargePoint[]>([])
   const selectedId = ref<string | null>(null)
   const selectedDetail = ref<{ chargePoint: ChargePoint; connectors: Connector[] } | null>(null)
@@ -211,6 +213,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     const client = new GatewayClient({
       chargePointId: cpId,
       ocppVersion,
+      centralSystemUrl: settingsStore.centralSystemUrl,
       onOpen: () => {
         runtime.connectionStatus = 'connected'
         runtime.registration = 'pending'

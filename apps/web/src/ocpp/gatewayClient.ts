@@ -1,6 +1,6 @@
 // gatewayClient owns the per-charge-point WebSocket connection to
-// ocpp-gateway. The URL format is /ws/{chargePointId}; the Vite dev
-// server proxies this to ws://localhost:7080/ws/{chargePointId}.
+// the configured Central System URL. The URL can include
+// {chargePointId}; otherwise the CP id is appended to the path.
 //
 // The client is intentionally dumb: it opens one socket per CP,
 // frames are sent and received as raw text JSON arrays, and there
@@ -17,6 +17,7 @@ export type FrameHandler = (frame: unknown[]) => void
 export interface GatewayClientOptions {
   chargePointId: string
   ocppVersion: string
+  centralSystemUrl: string
   onFrame: FrameHandler
   onOpen?: () => void
   onClose?: () => void
@@ -48,9 +49,7 @@ export class GatewayClient implements IGatewayClient {
 
   connect(): void {
     this.intentionalClose = false
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-    const url = `${protocol}//${host}/ws/${encodeURIComponent(this.chargePointId)}`
+    const url = centralSystemUrlForChargePoint(this.opts.centralSystemUrl, this.chargePointId)
     const subprotocol = ocppSubprotocol(this.opts.ocppVersion)
     // The WebSocket constructor's second argument is the
     // Sec-WebSocket-Protocol header value. We pass a single
@@ -72,7 +71,7 @@ export class GatewayClient implements IGatewayClient {
         }
       } catch {
         // eslint-disable-next-line no-console
-        console.warn('[ocpp/gateway] non-JSON or invalid frame on /ws/' + this.chargePointId)
+        console.warn('[ocpp/ws] non-JSON or invalid frame for ' + this.chargePointId)
       }
     }
 
@@ -123,11 +122,27 @@ export class GatewayClient implements IGatewayClient {
   }
 }
 
+export function centralSystemUrlForChargePoint(baseUrl: string, chargePointId: string): string {
+  const trimmed = baseUrl.trim()
+  if (!trimmed) {
+    return defaultCentralSystemUrl(chargePointId)
+  }
+  if (trimmed.includes('{chargePointId}')) {
+    return trimmed.replaceAll('{chargePointId}', encodeURIComponent(chargePointId))
+  }
+  const separator = trimmed.endsWith('/') ? '' : '/'
+  return `${trimmed}${separator}${encodeURIComponent(chargePointId)}`
+}
+
+function defaultCentralSystemUrl(chargePointId: string): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}/ws/${encodeURIComponent(chargePointId)}`
+}
+
 // ocppSubprotocol maps a charge point's stored OCPP version
 // string to the standard WebSocket subprotocol token. Unknown or
 // empty versions resolve to '' so the caller can decide whether
-// to omit the header. The mapping mirrors the gateway's
-// advertised Subprotocols slice (gateway/ws.go).
+// to omit the header.
 export function ocppSubprotocol(version: string): string {
   if (version === '2.0.1') return 'ocpp2.0.1'
   if (version === '1.6J' || version === '1.6') return 'ocpp1.6'

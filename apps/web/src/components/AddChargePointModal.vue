@@ -8,7 +8,6 @@ const store = useChargePointStore()
 const id = ref('')
 const name = ref('')
 const ocppVersion = ref('1.6J')
-const centralSystemUrl = ref('ws://localhost:8080/ocpp')
 
 async function onSubmit() {
   if (!id.value) return
@@ -16,7 +15,6 @@ async function onSubmit() {
     id: id.value,
     name: name.value || id.value,
     ocppVersion: ocppVersion.value,
-    centralSystemUrl: centralSystemUrl.value,
   })
   emit('close')
 }
@@ -47,10 +45,6 @@ async function onSubmit() {
             <option value="1.6J">OCPP 1.6J</option>
             <option value="2.0.1" disabled>OCPP 2.0.1 (planned)</option>
           </select>
-        </div>
-        <div class="form-field">
-          <label>Central System URL</label>
-          <input v-model="centralSystemUrl" placeholder="ws://localhost:8080/ocpp" />
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-cancel" @click="emit('close')">Cancel</button>

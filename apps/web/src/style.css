@@ -71,7 +71,11 @@ textarea {
   outline: none;
 }
 
-@media (max-width: 1023px) {
+/* Prevent iOS Safari from auto-zooming when focusing a form control.
+   Triggered whenever the rendered font-size is < 16px. Target touch
+   devices by capability (not viewport width) so it also covers large
+   tablets in landscape, which a width breakpoint would miss. */
+@media (hover: none) and (pointer: coarse) {
   input,
   select,
   textarea {

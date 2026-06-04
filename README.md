@@ -1,105 +1,60 @@
 # OCPP Simulator
 
-A local-first, web-based OCPP charge point simulator for developers testing EV charging backends. Targets OCPP 1.6J first; the v4.3 split is designed for OCPP 2.0.1 follow-up.
+A local-first, web-based OCPP charge point simulator for developers testing EV charging backends. Currently targets OCPP 1.6J, with an architecture designed to support OCPP 2.0.1 in the future.
 
-![OCPP simulator web UI — charge point control room with live logs](docs/images/web-simulator-ui.png)
+![OCPP simulator web UI](docs/images/web-simulator-ui.png)
 
-## Architecture (v4.3)
+## Architecture
 
-![OCPP system architecture: Chargepoint → Gateway → Core flow](docs/images/architecture-flow.png)
+![Architecture Flow](docs/images/architecture-flow.png)
 
-
-| Service | Role | Has DB | Talks MQTT |
+| Service | Role | DB | MQTT |
 |---|---|---|---|
-| `ocpp-gateway` | Dumb WebSocket↔MQTT bridge, per-CP `/ws/{cpId}` | no | yes |
-| `message-processor` | CP→server response producer; asks `ocpp-core` for business decisions | no (stdout audit only) | yes |
-| `ocpp-core` | Canonical log source; StartTransaction counter; CSMS-init CALL publisher | yes (`ocpp-core.db`) | yes |
-| `web` | Vue 3 UI; browser-local CP config/logs; one WebSocket per simulated CP | IndexedDB | no |
+| `ocpp-gateway` | WebSocket ↔ MQTT bridge per charge point | No | Yes |
+| `message-processor` | Handles CP → server responses | No | Yes |
+| `ocpp-core` | Source of truth for logs & transactions | Yes (PostgreSQL) | Yes |
+| `web` | Vue 3 UI for simulator control | IndexedDB | No |
 
-The hard rules of the OCPP wire are enforced throughout:
-- WebSocket subprotocol is `ocpp1.6` or `ocpp2.0.1` (per negotiated version).
-- MQTT payloads are raw OCPP-J arrays (`[2, uid, action, payload]` etc.) — **no wrappers, no envelopes, no `{type:...}` objects**.
-- The `ocpp-protocol` package is the only place that parses/produces wire bytes; the `codec` package is its sole boundary.
+## Development
 
-See `plan.md` for the full design rationale and `nextplan.md` for the v4.3 split decisions.
+**Prerequisites:**
+- Go 1.21+
+- Node.js 20+ & pnpm 9.x
+- Docker & Docker Compose
 
-## Prerequisites
-
-- **Go 1.21+** (workspace uses 1.26.3)
-- **Node.js 20+** and **pnpm 9.x** (Node 20's corepack ships a 11.x pnpm that crashes on `ERR_UNKNOWN_BUILTIN_MODULE`; pin to 9.15.4 — see `apps/web/Dockerfile`)
-- **Docker + Docker Compose** (for the v4.3 stack)
-- **make** (for the legacy combined dev path; not required for the v4.3 stack)
-
-## Quick Start
-
-### v4.3 stack via Docker Compose
+### Quick Start (Docker Compose)
 
 ```bash
 docker compose up -d --build
-# UI:       http://localhost:5173
-# Gateway:  ws://localhost:7080/ws/{chargePointId}
-# Core:     http://localhost:7090
-# Processor health: http://localhost:7091
-# MQTT:     tcp://localhost:1883
 ```
+- **UI:** http://localhost:5173
+- **Gateway:** ws://localhost:7080/ws/{chargePointId}
+- **Core:** http://localhost:7090
 
-End-to-end verification with a fake CP (writes to `docs/wire-dumps/t29-end-to-end-ocpp-frames.log`):
+### Local Dev Workflow
+
+To run the backends in Docker and the UI locally with Vite HMR:
 
 ```bash
-docker compose up -d
-docker run --rm --network ocpp-simulator_default -v "$PWD/scripts:/scripts" \
-  python:3.12-alpine sh -c "pip install --quiet websockets && python3 /scripts/fake_cp.py CP-WIRE"
+make dev
 ```
 
-### Local dev with vite HMR + backends in compose
-
-The default dev workflow: `make dev` brings up the backend OCPP
-stack in docker compose (mqtt, ocpp-gateway, message-processor,
-ocpp-core, postgres) and then runs the Vue dev server with
-hot-reload. Charge point config and UI logs live in browser
-IndexedDB, so no UI management API is required.
-
+Other useful commands:
 ```bash
-make dev                # backends in compose + vite at :5173
-make down               # tear down the backend stack
-make dev-stack          # backends only (no UI)
-make dev-web            # vite only (assumes backends are up)
-make dev-backend:ocpp-gateway      # single Go service via go run,
-make dev-backend:ocpp-core         # bypasses compose. Each target
-make dev-backend:message-processor  # uses the env vars that match the
-                                    # compose topology.
-make test               # 5 Go module tests with GOWORK=off
-make wire-dump          # run a fake CP, capture raw OCPP frames
+make down               # Stop backend stack
+make dev-stack          # Run backends only
+make test               # Run all Go tests
+make wire-dump          # Run a fake CP to capture raw OCPP frames
 ```
 
-Run `make help` for the full list.
+## Structure
 
-## Per-module build & test
-
-Every Go module is self-contained: `go.mod` has the `require`/`replace` directives it needs, so tests work both with `go.work` and with `GOWORK=off` from inside the module directory.
-
-```bash
-cd apps/ocpp-gateway    && go test ./...
-cd apps/message-processor && go test ./...
-cd apps/ocpp-core       && go test ./...
-cd packages/ocpp-protocol && go test ./...
-cd packages/ocpp-schemas  && go test ./...
-```
-
-## Project Structure
-
-```
-apps/
-  ocpp-gateway/     # Dumb WebSocket edge; per-CP /ws/{cpId}; raw frame bridge
-  message-processor/ # CP→server response producer; no DB; stdout audit
-  ocpp-core/        # Canonical log + transactions + business + CSMS-init CALL
-  web/              # Vue 3 dashboard + browser-local per-CP OCPP simulation
-packages/
-  ocpp-protocol/    # Public OCPP codec/message/protocol package
-  ocpp-schemas/     # Official OCPP JSON schemas + validator
-  shared/           # Shared TypeScript types
-  config/           # Shared frontend config
-```
+- `apps/ocpp-gateway/`: WebSocket edge service.
+- `apps/message-processor/`: Business logic for CP messages.
+- `apps/ocpp-core/`: Database and transaction management.
+- `apps/web/`: Vue 3 simulator dashboard.
+- `packages/ocpp-protocol/`: Shared OCPP encoding/decoding.
+- `packages/ocpp-schemas/`: JSON schema validation.
 
 ## License
 

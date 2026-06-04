@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRealtimeStore } from '../stores/realtimeStore'
 import { useChargePointStore } from '../stores/chargePointStore'
+import { listOcppLogs } from '../db/browserDb'
 
 const rtStore = useRealtimeStore()
 const cpStore = useChargePointStore()
@@ -36,6 +37,26 @@ function openDrawer(event: any) {
 function closeDrawer() {
   drawerEvent.value = null
 }
+
+async function exportAllLogs() {
+  if (!selectedId.value) return
+  const cpId = selectedId.value
+  const logs = await listOcppLogs(cpId, 1000)
+  
+  const textContent = logs
+    .filter(log => log.rawFrame)
+    .map(log => JSON.stringify(log.rawFrame))
+    .join('\n')
+
+  const blob = new Blob([textContent], { type: 'text/plain' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  link.download = `${cpId}-logs-${dateStr}.txt`
+  link.click()
+  URL.revokeObjectURL(url)
+}
 </script>
 
 <template>
@@ -45,7 +66,10 @@ function closeDrawer() {
         <h2>Live Logs</h2>
         <span class="subtitle">Realtime events</span>
       </div>
-      <span class="count" v-if="selectedEvents.length">{{ selectedEvents.length }}</span>
+      <div class="header-actions">
+        <span class="count" v-if="selectedEvents.length">{{ selectedEvents.length }}</span>
+        <button v-if="selectedId" class="btn-export" @click="exportAllLogs" title="Export All Logs">Export</button>
+      </div>
     </div>
     <div class="panel-body">
       <div v-if="!selectedId" class="empty-state">
@@ -126,6 +150,12 @@ function closeDrawer() {
   margin-top: 2px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .count {
   font-family: var(--font-mono);
   font-size: 0.72rem;
@@ -134,6 +164,23 @@ function closeDrawer() {
   border-radius: var(--radius-sm);
   padding: 2px 9px;
   color: var(--text-secondary);
+}
+
+.btn-export {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 3px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-export:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  background: var(--accent-soft);
 }
 
 .panel-body {

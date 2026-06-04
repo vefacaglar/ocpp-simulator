@@ -10,7 +10,7 @@ export const useRealtimeStore = defineStore('realtime', () => {
   function appendEvent(event: RealtimeEvent) {
     events.value = events.value.filter((e) => e.id !== event.id)
     events.value.push(event)
-    if (events.value.length > 500) {
+    if (events.value.length > 100) {
       events.value.shift()
     }
     void appendOcppLog(event).catch((err) => {
@@ -20,7 +20,7 @@ export const useRealtimeStore = defineStore('realtime', () => {
   }
 
   async function loadEventsForChargePoint(chargePointId: string) {
-    const loaded = await listOcppLogs(chargePointId)
+    const loaded = await listOcppLogs(chargePointId, 100)
     const others = events.value.filter((e) => e.chargePointId !== chargePointId)
     events.value = [...others, ...loaded]
   }

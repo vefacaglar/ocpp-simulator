@@ -1,4 +1,4 @@
-.PHONY: dev dev-stack dev-web down down-v kill-ports test wire-dump help
+.PHONY: dev csms simulator dev-stack dev-web down down-v kill-ports test wire-dump help
 # dev-backend:* targets intentionally use a colon in their
 # name; make's .PHONY list rejects colons, so they are not
 # listed here — they are treated as phony automatically because
@@ -34,6 +34,10 @@ dev: kill-ports
 	@echo "Backends up. Starting Vue dev server with hot-reload..."
 	@echo "  Web → http://localhost:$(VITE_PORT)"
 	@exec pnpm --filter web dev
+
+csms: dev-stack
+
+simulator: dev-web
 
 # dev-stack brings up only the backend services (no UI). Use
 # this if you want to develop the UI separately or hit the
@@ -109,6 +113,8 @@ wire-dump:
 help:
 	@echo "v4.3 dev entry points:"
 	@echo "  make dev                 - bring up backends in compose, then vite with HMR"
+	@echo "  make csms                - backend OCPP stack only (compose)"
+	@echo "  make simulator           - Vue simulator only (vite)"
 	@echo "  make dev-stack           - backends only (no UI), waits for health"
 	@echo "  make dev-web             - vite only (assumes backends are up)"
 	@echo "  make dev-backend:<svc>   - one Go service via go run, bypasses compose"

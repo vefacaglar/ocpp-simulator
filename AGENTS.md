@@ -89,11 +89,9 @@ Default target URL: OCPP gateway session `ws://localhost:7080/ws/{chargePointId}
 - A deliberately non-spec payload must be **rejected** by the validator in tests.
 - `message-processor` responses and `ocpp-core` CSMS-initiated CALLs are validated against official schemas in tests.
 
-## Working with tasks
+## Current state
 
-Work is tracked in [`tasks.md`](tasks.md) — the persistent handoff point between sessions/models. Read it first to see where things stand, update statuses as you go (`[ ]`→`[~]`→`[x]`), and keep it in sync with reality. The current testable OCPP path is `web`/fake CP → `ocpp-gateway` → MQTT → `message-processor`/`ocpp-core`.
-
-Respect task `blockedBy` dependencies; prefer lowest available ID. Do not mark a task complete with failing tests or partial implementation.
+The current testable OCPP path is `web`/fake CP → `ocpp-gateway` → MQTT → `message-processor`/`ocpp-core`.
 
 ## Scope guardrails
 

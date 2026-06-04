@@ -27,7 +27,22 @@ export type ConnectorStatus =
 export interface ConnectorState {
   status: ConnectorStatus
   cablePluggedIn: boolean
+  availabilityRequested?: 'Operative' | 'Inoperative'
+  faultCode?: string
+  pendingRemoteStartIdTag?: string
 }
+
+type StopReason =
+  | 'Local'
+  | 'Remote'
+  | 'EVDisconnected'
+  | 'EmergencyStop'
+  | 'PowerLoss'
+  | 'Reboot'
+  | 'SoftReset'
+  | 'HardReset'
+  | 'UnlockCommand'
+  | 'Other'
 
 interface TransactionState {
   // 1.6J numericId, populated asynchronously from the
@@ -37,6 +52,15 @@ interface TransactionState {
   idTag: string
   meterStart: number
   meterCurrent: number
+  meterStop: number | null
+  startedAt: string
+  lastSampleAt: string | null
+  soc: number
+  voltage: number
+  current: number
+  powerW: number
+  stopReason: StopReason | null
+  stopPending: boolean
   status: 'preparing' | 'charging' | 'finishing'
 }
 
@@ -317,36 +341,206 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     }
   }
 
-  // handleInboundCall answers a CSMS-initiated CALL (RemoteStart,
-  // Reset, etc.) with a spec-exact CALLRESULT. Unknown actions get
-  // a NotImplemented CALLERROR per OCPP 1.6J §5.3. The response
-  // frame is sent back through the same GatewayClient.
+  // handleInboundCall answers a CSMS-initiated CALL and applies the
+  // same local DC session flow the UI uses. Stateful commands decide
+  // Accepted/Rejected from connector and transaction state, then the
+  // CP emits its own OCPP calls over this WebSocket.
   function handleInboundCall(
-    _cpId: string,
+    cpId: string,
     state: ChargePointRuntime,
     uid: string,
     action: string,
-    _payload: Record<string, unknown> | undefined
+    payload: Record<string, unknown> | undefined
   ) {
     try {
-      const responsePayload = buildResponse(action, {
-        chargePointId: _cpId,
+      const responsePayload = handleStatefulInboundCall(cpId, state, action, payload) ?? buildResponse(action, {
+        chargePointId: cpId,
         uniqueId: uid,
       })
       const resultFrame = [3, uid, responsePayload]
-      sendResponseFrame(_cpId, state, resultFrame, action)
+      sendResponseFrame(cpId, state, resultFrame, action)
     } catch (err) {
       if (err instanceof UnknownActionError) {
         const errorFrame = [4, uid, NOT_IMPLEMENTED, `action ${action} not supported by simulator`, {}]
-        sendResponseFrame(_cpId, state, errorFrame, action)
+        sendResponseFrame(cpId, state, errorFrame, action)
         return
       }
       // Any other error: GenericError CALLERROR. The
       // description carries the cause.
       const desc = err instanceof Error ? err.message : 'unknown error'
       const errorFrame = [4, uid, 'GenericError', desc, {}]
-      sendResponseFrame(_cpId, state, errorFrame, action)
+      sendResponseFrame(cpId, state, errorFrame, action)
     }
+  }
+
+  function handleStatefulInboundCall(
+    cpId: string,
+    state: ChargePointRuntime,
+    action: string,
+    payload: Record<string, unknown> | undefined
+  ): Record<string, string> | null {
+    switch (action) {
+      case 'RemoteStartTransaction':
+        return handleRemoteStart(cpId, state, payload)
+      case 'RemoteStopTransaction':
+        return handleRemoteStop(cpId, state, payload)
+      case 'UnlockConnector':
+        return handleUnlockConnector(cpId, state, payload)
+      case 'Reset':
+        return handleReset(cpId, state, payload)
+      case 'ChangeAvailability':
+        return handleChangeAvailability(cpId, state, payload)
+      case 'TriggerMessage':
+        return handleTriggerMessage(cpId, state, payload)
+      default:
+        return null
+    }
+  }
+
+  function handleRemoteStart(cpId: string, state: ChargePointRuntime, payload: Record<string, unknown> | undefined) {
+    const idTag = typeof payload?.idTag === 'string' ? payload.idTag : ''
+    const requestedConnectorId = typeof payload?.connectorId === 'number' ? payload.connectorId : undefined
+    const connectorId = requestedConnectorId ?? firstConnectorIdInState(state)
+    if (!idTag || connectorId === undefined) return { status: 'Rejected' }
+
+    const cs = ensureConnectorState(state, connectorId)
+    if (cs.status !== 'Available' && cs.status !== 'Preparing') {
+      appendRuntimeEvent(cpId, 'runtime.command_rejected', `RemoteStart rejected: connector ${connectorId} is ${cs.status}`, connectorId, payload)
+      return { status: 'Rejected' }
+    }
+
+    cs.pendingRemoteStartIdTag = idTag
+    appendRuntimeEvent(cpId, 'runtime.remote_start_received', `RemoteStart accepted for connector ${connectorId}`, connectorId, payload)
+    setTimeout(() => {
+      const current = cpStates.value.get(cpId)
+      if (!current) return
+      const currentConnector = ensureConnectorState(current, connectorId)
+      if (currentConnector.status === 'Available') {
+        currentConnector.cablePluggedIn = true
+        currentConnector.status = 'Preparing'
+        appendRuntimeEvent(cpId, 'connector.cable_plugged', `Cable plugged on connector ${connectorId} by remote start`, connectorId)
+        sendStatusNotification(cpId, connectorId, 'Preparing', 'NoError')
+      }
+      if (currentConnector.status === 'Preparing') {
+        sendAuthorize(cpId, current, connectorId, idTag)
+      }
+    }, 0)
+    return { status: 'Accepted' }
+  }
+
+  function handleRemoteStop(cpId: string, state: ChargePointRuntime, payload: Record<string, unknown> | undefined) {
+    const transactionId = typeof payload?.transactionId === 'number' ? payload.transactionId : undefined
+    const entry = Array.from(state.transactions.entries()).find(([, tx]) => tx.transactionId === transactionId)
+    if (!entry) {
+      appendRuntimeEvent(cpId, 'runtime.command_rejected', `RemoteStop rejected: transaction ${transactionId ?? 'unknown'} not active`, undefined, payload)
+      return { status: 'Rejected' }
+    }
+    appendRuntimeEvent(cpId, 'runtime.remote_stop_received', `RemoteStop accepted for transaction ${transactionId}`, entry[0], payload)
+    setTimeout(() => {
+      const current = cpStates.value.get(cpId)
+      if (current) stopConnectorTransactionInternal(cpId, current, entry[0], 'Remote')
+    }, 0)
+    return { status: 'Accepted' }
+  }
+
+  function handleUnlockConnector(cpId: string, state: ChargePointRuntime, payload: Record<string, unknown> | undefined) {
+    const connectorId = typeof payload?.connectorId === 'number' ? payload.connectorId : undefined
+    if (connectorId === undefined) return { status: 'UnlockFailed' }
+    const cs = state.connectorStates.get(connectorId)
+    if (!cs) return { status: 'UnlockFailed' }
+    if (cs.status === 'Preparing' || cs.status === 'Finishing') {
+      state.transactions.delete(connectorId)
+      cs.cablePluggedIn = false
+      cs.status = 'Available'
+      cs.pendingRemoteStartIdTag = undefined
+      appendRuntimeEvent(cpId, 'connector.unlocked', `Connector ${connectorId} unlocked`, connectorId, payload)
+      sendStatusNotification(cpId, connectorId, 'Available', 'NoError')
+      return { status: 'Unlocked' }
+    }
+    return { status: cs.status === 'Charging' ? 'UnlockFailed' : 'Unlocked' }
+  }
+
+  function handleReset(cpId: string, state: ChargePointRuntime, payload: Record<string, unknown> | undefined) {
+    const resetType = payload?.type === 'Hard' ? 'Hard' : payload?.type === 'Soft' ? 'Soft' : null
+    if (!resetType) return { status: 'Rejected' }
+    const reason: StopReason = resetType === 'Hard' ? 'HardReset' : 'SoftReset'
+    appendRuntimeEvent(cpId, 'runtime.reset_requested', `${resetType} reset requested`, undefined, payload)
+    for (const [connectorId, tx] of Array.from(state.transactions.entries())) {
+      if (tx.transactionId !== null && !tx.stopPending) {
+        stopConnectorTransactionInternal(cpId, state, connectorId, reason)
+      }
+    }
+    setTimeout(() => {
+      if (!cpStates.value.has(cpId)) return
+      for (const [connectorId, cs] of state.connectorStates.entries()) {
+        if (cs.status !== 'Unavailable') {
+          cs.status = 'Available'
+          cs.cablePluggedIn = false
+          cs.pendingRemoteStartIdTag = undefined
+          sendStatusNotification(cpId, connectorId, 'Available', 'NoError')
+        }
+      }
+      sendBootNotification(cpId)
+    }, 500)
+    return { status: 'Accepted' }
+  }
+
+  function handleChangeAvailability(cpId: string, state: ChargePointRuntime, payload: Record<string, unknown> | undefined) {
+    const connectorId = typeof payload?.connectorId === 'number' ? payload.connectorId : undefined
+    const type = payload?.type === 'Inoperative' ? 'Inoperative' : payload?.type === 'Operative' ? 'Operative' : null
+    if (connectorId === undefined || !type) return { status: 'Rejected' }
+
+    const connectors = connectorId === 0
+      ? (Array.from(state.connectorStates.keys()).length > 0
+        ? Array.from(state.connectorStates.keys())
+        : selectedDetail.value?.connectors.map((connector) => connector.connectorNumber) ?? [])
+      : [connectorId]
+    if (connectors.length === 0) return { status: 'Rejected' }
+    let scheduled = false
+    for (const id of connectors) {
+      const cs = ensureConnectorState(state, id)
+      cs.availabilityRequested = type
+      if (type === 'Inoperative') {
+        if (cs.status === 'Charging' || cs.status === 'Preparing' || cs.status === 'Finishing') {
+          scheduled = true
+        } else {
+          cs.status = 'Unavailable'
+          cs.cablePluggedIn = false
+          sendStatusNotification(cpId, id, 'Unavailable', 'NoError')
+        }
+      } else if (cs.status === 'Unavailable') {
+        cs.status = 'Available'
+        sendStatusNotification(cpId, id, 'Available', 'NoError')
+      }
+    }
+    appendRuntimeEvent(cpId, 'runtime.availability_changed', `ChangeAvailability ${type} ${scheduled ? 'scheduled' : 'applied'}`, connectorId || undefined, payload)
+    return { status: scheduled ? 'Scheduled' : 'Accepted' }
+  }
+
+  function handleTriggerMessage(cpId: string, state: ChargePointRuntime, payload: Record<string, unknown> | undefined) {
+    const requestedMessage = typeof payload?.requestedMessage === 'string' ? payload.requestedMessage : ''
+    const connectorId = typeof payload?.connectorId === 'number' ? payload.connectorId : firstConnectorIdInState(state)
+    setTimeout(() => {
+      if (!cpStates.value.has(cpId)) return
+      switch (requestedMessage) {
+        case 'BootNotification':
+          sendBootNotification(cpId)
+          break
+        case 'Heartbeat':
+          sendHeartbeat(cpId)
+          break
+        case 'StatusNotification':
+          if (connectorId !== undefined) {
+            const cs = ensureConnectorState(state, connectorId)
+            sendStatusNotification(cpId, connectorId, cs.status, cs.faultCode ?? 'NoError')
+          }
+          break
+        case 'MeterValues':
+          if (connectorId !== undefined) sendConnectorMeterValuesInternal(cpId, state, connectorId)
+          break
+      }
+    }, 0)
+    return { status: requestedMessage ? 'Accepted' : 'Rejected' }
   }
 
   // handleCallResult resolves a pending call we sent and drives
@@ -438,6 +632,8 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     const detail = selectedDetail.value
     if (!detail) return
     for (const c of detail.connectors) {
+      const state = cpStates.value.get(cpId)
+      if (state) ensureConnectorState(state, c.connectorNumber)
       sendStatusNotification(cpId, c.connectorNumber, 'Available', 'NoError')
     }
   }
@@ -452,6 +648,44 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       timestamp: new Date().toISOString(),
     }]
     sendFrame(cpId, state, frame, 'StatusNotification')
+  }
+
+  function ensureConnectorState(state: ChargePointRuntime, connectorId: number): ConnectorState {
+    let cs = state.connectorStates.get(connectorId)
+    if (!cs) {
+      cs = { status: 'Available', cablePluggedIn: false }
+      state.connectorStates.set(connectorId, cs)
+    }
+    return cs
+  }
+
+  function firstConnectorIdInState(state: ChargePointRuntime): number | undefined {
+    const fromRuntime = state.connectorStates.keys().next().value as number | undefined
+    if (fromRuntime !== undefined) return fromRuntime
+    return selectedDetail.value?.connectors[0]?.connectorNumber
+  }
+
+  function appendRuntimeEvent(
+    cpId: string,
+    type: string,
+    message: string,
+    connectorId?: number,
+    payload?: unknown
+  ) {
+    realtimeStore.appendEvent({
+      id: `${cpId}-${type}-${connectorId ?? 'cp'}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type,
+      chargePointId: cpId,
+      connectorId,
+      payload,
+      message,
+      timestamp: new Date().toISOString(),
+    })
+  }
+
+  function sendAuthorize(cpId: string, state: ChargePointRuntime, connectorId: number, idTag: string) {
+    const frame = [2, uniqueId(), 'Authorize', { idTag }]
+    sendFrame(cpId, state, frame, 'Authorize', { connectorId, idTag })
   }
 
   // ─── Authorize / StartTransaction / StopTransaction / MeterValues ───
@@ -477,9 +711,19 @@ export const useChargePointStore = defineStore('chargePoint', () => {
         idTag,
         meterStart,
         meterCurrent: meterStart,
+        meterStop: null,
+        startedAt: new Date().toISOString(),
+        lastSampleAt: null,
+        soc: 20,
+        voltage: 400,
+        current: 0,
+        powerW: 0,
+        stopReason: null,
+        stopPending: false,
         status: 'preparing',
       }
       state.transactions.set(connectorId, tx)
+      appendRuntimeEvent(cpId, 'transaction.authorized', `Authorization accepted for connector ${connectorId}`, connectorId, { idTag })
       const frame = [2, uniqueId(), 'StartTransaction', {
         connectorId,
         idTag,
@@ -489,6 +733,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       sendFrame(cpId, state, frame, 'StartTransaction', { connectorId })
     } else {
       if (cs) cs.status = 'Available'
+      appendRuntimeEvent(cpId, 'transaction.authorization_rejected', `Authorization rejected for connector ${connectorId}`, connectorId, { idTag, status })
       error.value = `Authorize rejected: ${status ?? 'Unknown'}`
     }
   }
@@ -505,18 +750,21 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       pendingTx.transactionId = transactionId
       pendingTx.status = 'charging'
       if (cs) cs.status = 'Charging'
+      appendRuntimeEvent(cpId, 'transaction.started', `Transaction ${transactionId} started on connector ${connectorId}`, connectorId, { transactionId })
       sendStatusNotification(cpId, connectorId, 'Charging', 'NoError')
       startMeterValuesTimer(cpId)
     } else {
       state.transactions.delete(connectorId)
       if (cs) cs.status = 'Available'
+      appendRuntimeEvent(cpId, 'transaction.failed', `StartTransaction rejected for connector ${connectorId}`, connectorId, { status })
       error.value = `StartTransaction rejected: ${status ?? 'Unknown'}`
     }
   }
 
-  function handleStopTransactionResponse(_cpId: string, _state: ChargePointRuntime, _payload: Record<string, unknown>) {
-    // The .conf is informational; the local cleanup happened
-    // before the call was sent.
+  function handleStopTransactionResponse(cpId: string, state: ChargePointRuntime, _payload: Record<string, unknown>) {
+    const pendingTx = Array.from(state.transactions.values()).find((tx) => tx.stopPending)
+    if (!pendingTx) return
+    finishStoppedTransaction(cpId, state, pendingTx.connectorId)
   }
 
   function startMeterValuesTimer(cpId: string) {
@@ -535,8 +783,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
   function sendMeterValuesForTransaction(cpId: string, connectorId: number, tx: TransactionState) {
     const state = cpStates.value.get(cpId)
     if (!state || state.registration !== 'accepted' || !state.client.isOpen) return
-    state.meterCounter += 100
-    tx.meterCurrent = state.meterCounter
+    advanceDcMeter(tx, 10)
     const frame = [2, uniqueId(), 'MeterValues', {
       connectorId,
       transactionId: tx.transactionId,
@@ -545,12 +792,36 @@ export const useChargePointStore = defineStore('chargePoint', () => {
           timestamp: new Date().toISOString(),
           sampledValue: [
             { value: String(tx.meterCurrent), measurand: 'Energy.Active.Import.Register', unit: 'Wh', context: 'Sample.Periodic' },
-            { value: '7360', measurand: 'Power.Active.Import', unit: 'W' },
+            { value: String(tx.powerW), measurand: 'Power.Active.Import', unit: 'W', context: 'Sample.Periodic' },
+            { value: tx.current.toFixed(1), measurand: 'Current.Import', unit: 'A', context: 'Sample.Periodic' },
+            { value: tx.voltage.toFixed(1), measurand: 'Voltage', unit: 'V', context: 'Sample.Periodic' },
+            { value: String(tx.soc), measurand: 'SoC', unit: 'Percent', context: 'Sample.Periodic' },
           ],
         },
       ],
     }]
+    appendRuntimeEvent(cpId, 'meter_value.generated', `MeterValues generated for connector ${connectorId}`, connectorId, {
+      transactionId: tx.transactionId,
+      powerW: tx.powerW,
+      soc: tx.soc,
+      meterCurrent: tx.meterCurrent,
+    })
     sendFrame(cpId, state, frame, 'MeterValues')
+  }
+
+  function advanceDcMeter(tx: TransactionState, elapsedSeconds: number) {
+    const nextSoc = Math.min(95, tx.soc + 1)
+    const targetPowerW = nextSoc < 30
+      ? 45000 + (nextSoc - 20) * 4500
+      : nextSoc < 80
+        ? 90000
+        : Math.max(18000, 90000 - (nextSoc - 80) * 4800)
+    tx.soc = nextSoc
+    tx.powerW = Math.round(targetPowerW)
+    tx.voltage = Math.round((390 + tx.soc * 1.2) * 10) / 10
+    tx.current = Math.round((tx.powerW / tx.voltage) * 10) / 10
+    tx.meterCurrent += Math.max(1, Math.round(tx.powerW * elapsedSeconds / 3600))
+    tx.lastSampleAt = new Date().toISOString()
   }
 
   // ─── Wire send helper ────────────────────────────────────────────────
@@ -651,6 +922,91 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     scheduleHeartbeat(cpId)
   }
 
+  function stopConnectorTransactionInternal(
+    cpId: string,
+    state: ChargePointRuntime,
+    connectorId: number,
+    reason: StopReason
+  ): boolean {
+    const tx = state.transactions.get(connectorId)
+    if (!tx || tx.transactionId === null || tx.stopPending) return false
+    if (!state.client.isOpen) return false
+
+    tx.status = 'finishing'
+    tx.stopReason = reason
+    tx.stopPending = true
+    advanceDcMeter(tx, 5)
+    tx.meterStop = tx.meterCurrent
+    const cs = ensureConnectorState(state, connectorId)
+    cs.status = 'Finishing'
+    setRuntime(cpId, state)
+    sendStatusNotification(cpId, connectorId, 'Finishing', 'NoError')
+    appendRuntimeEvent(cpId, 'transaction.stopping', `Stopping transaction ${tx.transactionId} (${reason})`, connectorId, {
+      transactionId: tx.transactionId,
+      reason,
+    })
+
+    const frame = [2, uniqueId(), 'StopTransaction', {
+      transactionId: tx.transactionId,
+      idTag: tx.idTag,
+      meterStop: tx.meterStop,
+      timestamp: new Date().toISOString(),
+      reason,
+      transactionData: [
+        {
+          timestamp: new Date().toISOString(),
+          sampledValue: [
+            { value: String(tx.meterStop), measurand: 'Energy.Active.Import.Register', unit: 'Wh', context: 'Transaction.End' },
+            { value: String(tx.soc), measurand: 'SoC', unit: 'Percent', context: 'Transaction.End' },
+          ],
+        },
+      ],
+    }]
+    sendFrame(cpId, state, frame, 'StopTransaction', { connectorId })
+    setTimeout(() => {
+      const current = cpStates.value.get(cpId)
+      const pending = current?.transactions.get(connectorId)
+      if (current && pending?.stopPending) {
+        appendRuntimeEvent(cpId, 'runtime.response_timeout', `StopTransaction response timeout for connector ${connectorId}`, connectorId, {
+          transactionId: pending.transactionId,
+        })
+        finishStoppedTransaction(cpId, current, connectorId)
+      }
+    }, 15000)
+    return true
+  }
+
+  function finishStoppedTransaction(cpId: string, state: ChargePointRuntime, connectorId: number) {
+    const tx = state.transactions.get(connectorId)
+    if (!tx) return
+    state.transactions.delete(connectorId)
+    if (!Array.from(state.transactions.values()).some((other) => other.status === 'charging')) {
+      if (state.meterValuesTimer) {
+        clearInterval(state.meterValuesTimer)
+        state.meterValuesTimer = null
+      }
+    }
+    appendRuntimeEvent(cpId, 'transaction.finished', `Transaction ${tx.transactionId ?? 'pending'} finished`, connectorId, {
+      transactionId: tx.transactionId,
+      reason: tx.stopReason,
+      meterStop: tx.meterStop,
+    })
+    const cs = ensureConnectorState(state, connectorId)
+    if (cs.availabilityRequested === 'Inoperative') {
+      cs.status = 'Unavailable'
+      cs.cablePluggedIn = false
+      setRuntime(cpId, state)
+      sendStatusNotification(cpId, connectorId, 'Unavailable', 'NoError')
+    }
+  }
+
+  function sendConnectorMeterValuesInternal(cpId: string, state: ChargePointRuntime, connectorId: number): boolean {
+    const tx = state.transactions.get(connectorId)
+    if (!tx || tx.transactionId === null || tx.stopPending) return false
+    sendMeterValuesForTransaction(cpId, connectorId, tx)
+    return true
+  }
+
   // ─── Connector flow actions (UI buttons) ────────────────────────────
 
   function plugInConnector(connectorId: number) {
@@ -661,17 +1017,14 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       error.value = 'Not registered'
       return
     }
-    let cs = state.connectorStates.get(connectorId)
-    if (!cs) {
-      cs = { status: 'Available', cablePluggedIn: false }
-      state.connectorStates.set(connectorId, cs)
-    }
+    const cs = ensureConnectorState(state, connectorId)
     if (cs.status !== 'Available') {
       error.value = `Cannot plug in: connector is ${cs.status}`
       return
     }
     cs.cablePluggedIn = true
     cs.status = 'Preparing'
+    appendRuntimeEvent(cpId, 'connector.cable_plugged', `Cable plugged on connector ${connectorId}`, connectorId)
     sendStatusNotification(cpId, connectorId, 'Preparing', 'NoError')
   }
 
@@ -688,8 +1041,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       error.value = 'Connector must be Preparing with cable plugged in'
       return
     }
-    const frame = [2, uniqueId(), 'Authorize', { idTag }]
-    sendFrame(cpId, state, frame, 'Authorize', { connectorId, idTag })
+    sendAuthorize(cpId, state, connectorId, idTag)
   }
 
   function unplugConnector(connectorId: number) {
@@ -702,9 +1054,12 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     if (cs.status === 'Preparing' || cs.status === 'Finishing') {
       cs.cablePluggedIn = false
       cs.status = 'Available'
+      cs.pendingRemoteStartIdTag = undefined
+      appendRuntimeEvent(cpId, 'connector.cable_unplugged', `Cable unplugged on connector ${connectorId}`, connectorId)
       sendStatusNotification(cpId, connectorId, 'Available', 'NoError')
     } else if (cs.status === 'Charging') {
-      error.value = 'Stop the transaction before unplugging'
+      appendRuntimeEvent(cpId, 'connector.ev_disconnected', `EV disconnected on connector ${connectorId}`, connectorId)
+      stopConnectorTransactionInternal(cpId, state, connectorId, 'EVDisconnected')
     } else {
       error.value = `Cannot unplug: connector is ${cs.status}`
     }
@@ -715,36 +1070,9 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     const cpId = selectedId.value
     const state = cpStates.value.get(cpId)
     if (!state || state.registration !== 'accepted' || !state.client.isOpen) return
-    const tx = state.transactions.get(connectorId)
-    if (!tx || tx.transactionId === null) {
+    if (!stopConnectorTransactionInternal(cpId, state, connectorId, 'Local')) {
       error.value = 'No active transaction'
-      return
     }
-    if (state.meterValuesTimer) {
-      clearInterval(state.meterValuesTimer)
-      state.meterValuesTimer = null
-    }
-    const cs = state.connectorStates.get(connectorId)
-    if (cs) cs.status = 'Finishing'
-    sendStatusNotification(cpId, connectorId, 'Finishing', 'NoError')
-    state.meterCounter += 50
-    const meterStop = state.meterCounter
-    const frame = [2, uniqueId(), 'StopTransaction', {
-      transactionId: tx.transactionId,
-      meterStop,
-      timestamp: new Date().toISOString(),
-      reason: 'Local',
-      transactionData: [
-        {
-          timestamp: new Date().toISOString(),
-          sampledValue: [
-            { value: String(meterStop), measurand: 'Energy.Active.Import.Register', unit: 'Wh', context: 'Transaction.End' },
-          ],
-        },
-      ],
-    }]
-    sendFrame(cpId, state, frame, 'StopTransaction')
-    state.transactions.delete(connectorId)
   }
 
   function sendConnectorMeterValues(connectorId: number) {
@@ -752,27 +1080,9 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     const cpId = selectedId.value
     const state = cpStates.value.get(cpId)
     if (!state || state.registration !== 'accepted' || !state.client.isOpen) return
-    const tx = state.transactions.get(connectorId)
-    if (!tx || tx.transactionId === null) {
+    if (!sendConnectorMeterValuesInternal(cpId, state, connectorId)) {
       error.value = 'No active transaction'
-      return
     }
-    state.meterCounter += 10
-    tx.meterCurrent = state.meterCounter
-    const frame = [2, uniqueId(), 'MeterValues', {
-      connectorId,
-      transactionId: tx.transactionId,
-      meterValue: [
-        {
-          timestamp: new Date().toISOString(),
-          sampledValue: [
-            { value: String(tx.meterCurrent), measurand: 'Energy.Active.Import.Register', unit: 'Wh', context: 'Sample.Periodic' },
-            { value: '7360', measurand: 'Power.Active.Import', unit: 'W' },
-          ],
-        },
-      ],
-    }]
-    sendFrame(cpId, state, frame, 'MeterValues')
   }
 
   function setConnectorStatus(connectorId: number, status: string) {
@@ -780,14 +1090,22 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     const cpId = selectedId.value
     const state = cpStates.value.get(cpId)
     if (!state || state.registration !== 'accepted') return
-    let cs = state.connectorStates.get(connectorId)
-    if (!cs) {
-      cs = { status: 'Available', cablePluggedIn: false }
-      state.connectorStates.set(connectorId, cs)
+    const cs = ensureConnectorState(state, connectorId)
+    if (status === 'Faulted') {
+      cs.faultCode = 'OtherError'
+      const tx = state.transactions.get(connectorId)
+      if (tx?.transactionId !== null && tx && !tx.stopPending) {
+        stopConnectorTransactionInternal(cpId, state, connectorId, 'EmergencyStop')
+      }
+    } else if (status === 'SuspendedEV' || status === 'SuspendedEVSE') {
+      const tx = state.transactions.get(connectorId)
+      if (tx) tx.status = 'charging'
+    } else if (status === 'Available') {
+      cs.faultCode = undefined
     }
     cs.status = status as ConnectorStatus
     if (status === 'Available') cs.cablePluggedIn = false
-    sendStatusNotification(cpId, connectorId, status, 'NoError')
+    sendStatusNotification(cpId, connectorId, status, cs.faultCode ?? 'NoError')
   }
 
   // boot/heartbeat UI actions: send the corresponding CALL on

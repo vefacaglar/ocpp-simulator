@@ -11,15 +11,14 @@
 // The internal domain model (transactions, runtime state) is
 // never reflected on the wire.
 
-// BuildResponseInput is the subset of the local connector state
-// needed to answer CSMS-initiated commands. The simulator is
-// intentionally permissive: most commands are acknowledged
-// Accepted because the browser cannot enforce deep business
-// policy. The point of the simulator is to test the wire format
-// and gateway plumbing, not to model every CSMS guard rail.
+// BuildResponseInput carries the state decision made by the
+// browser-side charge point runtime. Stateful commands must not be
+// blindly accepted here; the store decides whether they are valid
+// for the current connector/session state and passes that status in.
 export interface BuildResponseInput {
   chargePointId: string
   uniqueId: string
+  status?: string
 }
 
 // buildResponse inspects an inbound CSMS-init CALL action and
@@ -29,29 +28,16 @@ export interface BuildResponseInput {
 export function buildResponse(action: string, _input: BuildResponseInput): unknown {
   switch (action) {
     case 'RemoteStartTransaction':
-      // The simulator acknowledges the request. The actual
-      // StartTransaction is the CP's own call triggered by the
-      // user (or by the test driver). Returning Accepted is the
-      // spec-exact happy-path answer.
-      return { status: 'Accepted' }
+      return { status: _input.status === 'Accepted' ? 'Accepted' : 'Rejected' }
 
     case 'RemoteStopTransaction':
-      // Same shape as RemoteStartTransaction: acknowledge and
-      // let the CP-side StopTransaction flow finish the
-      // bookkeeping.
-      return { status: 'Accepted' }
+      return { status: _input.status === 'Accepted' ? 'Accepted' : 'Rejected' }
 
     case 'Reset':
-      // The request carries a `type` field; we don't need to
-      // inspect it here because the request is the only place
-      // the type appears. The response is a status enum.
-      return { status: 'Accepted' }
+      return { status: _input.status === 'Accepted' ? 'Accepted' : 'Rejected' }
 
     case 'UnlockConnector':
-      // Status enum: "Unlocked" or "UnlockFailed". The
-      // simulator only ever reports Unlocked because unlocking
-      // is the default behavior of a virtual charge point.
-      return { status: 'Unlocked' }
+      return { status: _input.status === 'Unlocked' ? 'Unlocked' : 'UnlockFailed' }
 
     case 'ChangeConfiguration':
       return { status: 'Accepted' }
@@ -75,18 +61,11 @@ export function buildResponse(action: string, _input: BuildResponseInput): unkno
     }
 
     case 'TriggerMessage':
-      // TriggerMessage asks the CP to send a specific message
-      // (Boot, Heartbeat, Status, MeterValues). The simulator
-      // returns Accepted without dispatching; the test driver
-      // invokes the corresponding button manually so the
-      // behavior is observable in the UI.
-      return { status: 'Accepted' }
+      return { status: _input.status === 'Accepted' ? 'Accepted' : 'Rejected' }
 
     case 'ChangeAvailability':
-      // Operative/Inoperative. We acknowledge and let the
-      // caller drive the state via the connector control
-      // buttons.
-      return { status: 'Accepted' }
+      if (_input.status === 'Accepted' || _input.status === 'Scheduled') return { status: _input.status }
+      return { status: 'Rejected' }
 
     default:
       // Unknown CSMS-init action. The simulator does not know

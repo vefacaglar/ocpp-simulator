@@ -64,7 +64,14 @@ function db(): Promise<IDBDatabase> {
         database.createObjectStore('appState', { keyPath: 'key' })
       }
     }
-    req.onsuccess = () => resolve(req.result)
+    req.onsuccess = () => {
+      const database = req.result
+      database.onversionchange = () => {
+        database.close()
+        dbPromise = null
+      }
+      resolve(database)
+    }
     req.onerror = () => reject(req.error ?? new Error('failed to open browser database'))
   })
   return dbPromise
@@ -267,4 +274,18 @@ export async function importBrowserDb(data: BrowserDbExport): Promise<void> {
   for (const row of data.ocppLogs) tx.objectStore('ocppLogs').put(row)
   for (const row of data.appState) tx.objectStore('appState').put(row)
   await transactionDone(tx)
+}
+
+export async function clearBrowserDb(): Promise<void> {
+  if (dbPromise) {
+    const database = await dbPromise
+    database.close()
+    dbPromise = null
+  }
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase(DB_NAME)
+    req.onsuccess = () => resolve()
+    req.onerror = () => reject(new Error('failed to delete database'))
+    req.onblocked = () => reject(new Error('database deletion blocked by another tab'))
+  })
 }

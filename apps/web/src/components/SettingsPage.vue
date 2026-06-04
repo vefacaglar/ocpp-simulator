@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useSettingsStore } from '../stores/settingsStore'
-import { exportBrowserDb, importBrowserDb, type BrowserDbExport } from '../db/browserDb'
+import { exportBrowserDb, importBrowserDb, clearBrowserDb, type BrowserDbExport } from '../db/browserDb'
 
 const settings = useSettingsStore()
 const draftUrl = ref(settings.centralSystemUrl)
 const saved = ref(false)
 const importInput = ref<HTMLInputElement | null>(null)
 const importError = ref<string | null>(null)
+const showClearConfirm = ref(false)
+const clearError = ref<string | null>(null)
+const isClearing = ref(false)
+const clearSuccess = ref(false)
 
 watch(
   () => settings.centralSystemUrl,
@@ -30,7 +34,8 @@ async function exportData() {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `ocpp-simulator-${new Date().toISOString().slice(0, 10)}.json`
+  const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  link.download = `ocpp-simulator-${dateStr}.json`
   link.click()
   URL.revokeObjectURL(url)
 }
@@ -53,6 +58,21 @@ async function importData(event: Event) {
     importError.value = err.message || 'Import failed'
   } finally {
     input.value = ''
+  }
+}
+
+async function confirmClear() {
+  isClearing.value = true
+  clearError.value = null
+  try {
+    await clearBrowserDb()
+    clearSuccess.value = true
+    setTimeout(() => {
+      window.location.reload()
+    }, 1500)
+  } catch (err: any) {
+    clearError.value = err.message || 'Failed to clear database'
+    isClearing.value = false
   }
 }
 </script>
@@ -88,10 +108,35 @@ async function importData(event: Event) {
       <div class="actions">
         <button class="btn" @click="exportData">Export JSON</button>
         <button class="btn" @click="openImportPicker">Import JSON</button>
+        <button class="btn btn-danger" @click="showClearConfirm = true">Clear Database</button>
         <input ref="importInput" class="file-input" type="file" accept="application/json,.json" @change="importData" />
       </div>
       <p v-if="importError" class="error">{{ importError }}</p>
     </section>
+
+    <!-- Clear Confirm Modal -->
+    <div v-if="showClearConfirm" class="modal-overlay" @click.self="showClearConfirm = false">
+      <div class="modal">
+        <div class="modal-header">
+          <div>
+            <div class="eyebrow">— Danger Zone</div>
+            <h3>Clear Database</h3>
+          </div>
+          <button class="modal-close" @click="showClearConfirm = false">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-text">Are you sure you want to clear the entire database? This will delete all charge points, connectors, settings, and logs.</p>
+          <p class="modal-text danger-text">This action cannot be undone.</p>
+          <p v-if="clearError" class="error">{{ clearError }}</p>
+          <div class="form-actions">
+            <button class="btn btn-cancel" @click="showClearConfirm = false" :disabled="isClearing || clearSuccess">Cancel</button>
+            <button class="btn btn-danger" @click="confirmClear" :disabled="isClearing || clearSuccess">
+              {{ clearSuccess ? 'Cleared! Reloading...' : (isClearing ? 'Clearing...' : 'Yes, Clear Everything') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -190,10 +235,34 @@ h2 {
   cursor: pointer;
 }
 
+.btn:hover {
+  color: var(--text-primary);
+  border-color: rgba(244, 241, 234, 0.22);
+}
+
 .btn-primary {
   background: var(--accent);
   color: var(--accent-ink);
   border-color: var(--accent);
+}
+.btn-primary:hover {
+  background: #efe7d0;
+  color: var(--accent-ink);
+  border-color: #efe7d0;
+}
+
+.btn-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.btn-danger:hover {
+  background: rgba(214, 139, 110, 0.10);
+}
+
+.btn-cancel { color: var(--text-muted); }
+.btn-cancel:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
 }
 
 .file-input {
@@ -211,6 +280,89 @@ h2 {
   color: var(--status-fault);
   font-family: var(--font-mono);
   font-size: 0.74rem;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  width: 440px;
+  max-width: 90vw;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 24px 28px 20px 28px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.modal-header h3 {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin: 0;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: color 0.15s;
+  margin-top: -4px;
+}
+.modal-close:hover { color: var(--text-primary); }
+
+.modal-body {
+  padding: 24px 28px 28px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-text {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.danger-text {
+  color: var(--status-fault);
+  font-weight: 600;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 @media (max-width: 768px) {

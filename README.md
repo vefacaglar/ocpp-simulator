@@ -2,21 +2,12 @@
 
 A local-first, web-based OCPP charge point simulator for developers testing EV charging backends. Targets OCPP 1.6J first; the v4.3 split is designed for OCPP 2.0.1 follow-up.
 
+![OCPP simulator web UI — charge point control room with live logs](docs/images/web-simulator-ui.png)
+
 ## Architecture (v4.3)
 
-```
-Vue per-CP simulator --[WS /ws/{cpId}]--> ocpp-gateway
-                                         |
-                                         v
-                              MQTT ocpp/{cpId}/in  +  ocpp/{cpId}/out
-                              (raw OCPP-J arrays, no wrapper)
-                              ^                                ^
-                              |                                |
-                       message-processor <---HTTP---> ocpp-core
-                       (response producer,         (canonical log +
-                        no DB, stdout audit)        transactions, business
-                                                     + CSMS-init CALL)
-```
+![OCPP system architecture: Chargepoint → Gateway → Core flow](docs/images/architecture-flow.png)
+
 
 | Service | Role | Has DB | Talks MQTT |
 |---|---|---|---|

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useChargePointStore } from '../stores/chargePointStore'
 import RuntimeStatusBadge from './RuntimeStatusBadge.vue'
 import AddChargePointModal from './AddChargePointModal.vue'
@@ -8,6 +8,13 @@ const store = useChargePointStore()
 const showModal = ref(false)
 
 onMounted(() => store.loadChargePoints())
+
+const hasConnected = computed(() =>
+  store.chargePoints.some((cp) => store.isConnected(cp.id))
+)
+const hasDisconnected = computed(() =>
+  store.chargePoints.some((cp) => !store.isConnected(cp.id))
+)
 
 function onSelect(id: string) {
   store.selectChargePoint(id)
@@ -24,6 +31,10 @@ async function onDelete(id: string, e: Event) {
     <div class="panel-header">
       <h2>Charge Points</h2>
       <button class="btn-add" title="Add Charge Point" @click="showModal = true">+</button>
+    </div>
+    <div v-if="store.chargePoints.length > 0" class="bulk-actions">
+      <button class="btn-bulk" :disabled="!hasDisconnected" @click="store.connectAll()">Connect All</button>
+      <button class="btn-bulk" :disabled="!hasConnected" @click="store.disconnectAll()">Disconnect All</button>
     </div>
     <div class="panel-body">
       <div v-if="store.loading" class="empty-state">Loading…</div>
@@ -101,6 +112,36 @@ async function onDelete(id: string, e: Event) {
   color: var(--accent);
 }
 
+.bulk-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.btn-bulk {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.btn-bulk:hover:not(:disabled) {
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+  background: var(--accent-soft);
+}
+.btn-bulk:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .panel-body {
   flex: 1;
   overflow-y: auto;
@@ -143,7 +184,7 @@ async function onDelete(id: string, e: Event) {
   transition: background 0.15s, border-color 0.15s;
 }
 .cp-item:hover {
-  background: rgba(244, 241, 234, 0.04);
+  background: var(--accent-soft);
   border-color: var(--border-subtle);
 }
 .cp-item.selected {

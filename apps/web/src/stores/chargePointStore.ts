@@ -224,28 +224,11 @@ export const useChargePointStore = defineStore('chargePoint', () => {
 
   // ─── Per-CP WebSocket lifecycle (ocpp-gateway) ────────────────────────
 
-  async function connectChargePoint() {
-    if (!selectedId.value) return
-    const cpId = selectedId.value
-    // Already connected — nothing to do.
+  function connectChargePointById(cpId: string, ocppVersion: string) {
     if (isConnected(cpId)) return
-    // Stale state left over from a previous session (e.g. the
-    // socket closed but the runtime entry was never removed).
-    // Clean it up so we start fresh.
     if (cpStates.value.has(cpId)) {
       disconnectWS(cpId)
     }
-    if (!selectedDetail.value || selectedDetail.value.chargePoint.id !== cpId) {
-      try {
-        await selectChargePoint(cpId)
-      } catch (e) {
-        // Fall through; if selectedDetail is still missing
-        // we'll fall back to '1.6J' below.
-      }
-    }
-    const ocppVersion =
-      selectedDetail.value?.chargePoint.ocppVersion ?? '1.6J'
-
     let runtime!: ChargePointRuntime
     const client = new GatewayClient({
       chargePointId: cpId,
@@ -289,9 +272,39 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     client.connect()
   }
 
+  async function connectChargePoint() {
+    if (!selectedId.value) return
+    const cpId = selectedId.value
+    if (!selectedDetail.value || selectedDetail.value.chargePoint.id !== cpId) {
+      try {
+        await selectChargePoint(cpId)
+      } catch (e) {
+        // Fall through; fall back to '1.6J' below.
+      }
+    }
+    const ocppVersion = selectedDetail.value?.chargePoint.ocppVersion ?? '1.6J'
+    connectChargePointById(cpId, ocppVersion)
+  }
+
   function disconnectChargePoint() {
     if (!selectedId.value) return
     disconnectWS(selectedId.value)
+  }
+
+  function connectAll() {
+    for (const cp of chargePoints.value) {
+      if (!isConnected(cp.id)) {
+        connectChargePointById(cp.id, cp.ocppVersion ?? '1.6J')
+      }
+    }
+  }
+
+  function disconnectAll() {
+    for (const cp of chargePoints.value) {
+      if (cpStates.value.has(cp.id)) {
+        disconnectWS(cp.id)
+      }
+    }
   }
 
   function disconnectWS(cpId: string) {
@@ -1139,6 +1152,8 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     removeConnector,
     connectChargePoint,
     disconnectChargePoint,
+    connectAll,
+    disconnectAll,
     bootChargePoint,
     heartbeatChargePoint,
     getConnectorStatus,

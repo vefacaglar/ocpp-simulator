@@ -1,6 +1,6 @@
 # packages/ocpp-protocol
 
-Version-agnostic OCPP protocol code, extracted from the original `apps/api/internal/ocpp` so it can be imported by every backend service in the v4.3 split (`simulator-api`, `ocpp-gateway`, `message-processor`, `ocpp-core`, `web`).
+Version-agnostic OCPP protocol code, extracted from the original `apps/api/internal/ocpp` so it can be imported by backend services in the v4.3 split (`ocpp-gateway`, `message-processor`, `ocpp-core`) and any future protocol-aware package.
 
 Public packages:
 

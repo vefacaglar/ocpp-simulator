@@ -187,6 +187,10 @@ Next available: **All tasks complete**.
 - [x] **T29 fix — make dev + npm scripts v4.3 orkestrasyona güncelle** 🔧
   Makefile + package.json stale `apps/api` referansları içeriyordu ve `make dev` compose akışını çağırmıyordu. `Makefile` yeniden yazıldı: `dev` (kill-ports vite 5173 → `docker compose up -d --wait mqtt ocpp-core message-processor ocpp-gateway simulator-api` → `pnpm --filter web dev` exec), `dev-stack` (yalnız backend'ler, --wait), `dev-web` (yalnız vite), `dev-backend:<svc>` (her Go servisi için compose'suz lokal go run, env'ler compose topology'siyle eşleşir), `down` (compose down), `down-v` (volumes dahil), `kill-ports` (yalnız 5173), `test` (her modül GOWORK=off ile), `wire-dump` (`scripts/wire-dump.sh` script'ini çağırır), `help`. `package.json` v4.3: `dev:stack`, `dev:web`, `dev:<svc>` (her backend için), `dev` (make dev'e proxy), `down`, `down:v`, `test` (make test'e proxy). Eski `dev-api`/`dev:api` `apps/api`'ye referans veriyordu, kaldırıldı. `README.md` quick-start yeniden yazıldı: `make dev` → vite HMR + compose backend akışı. Doğrulama: `make dev-stack` 5 backend'i healthy ayağa kaldırır, `pnpm dev` vite 5173'te çalışır, vite `/api` proxy simulator-api:7070'e erişir, `make wire-dump` raw OCPP-J frame'leri `docs/wire-dumps/wire-dump-<timestamp>.log`'a yazar, `make test` 7/7 modül yeşil, `make down` stack'i durdurur, `apps/api` Makefile + package.json'da sıfır referans.
 
+- [x] **T30 — Remove simulator-api after browser-only config** 🔧
+  `apps/web` artık charge point/connector config, seçili CP ve UI OCPP loglarını browser IndexedDB’de tuttuğu için `simulator-api` projeden kaldırıldı. `apps/simulator-api` modülü, `go.work`, Docker Compose servisi, web nginx `/api` reverse proxy, Makefile/package scripts, PostgreSQL `simulator_api` init DB’leri ve aktif README/AGENTS/CLAUDE referansları temizlendi.
+  _Acceptance:_ web build yeşil; Go module test döngüsü artık 6 modül (`apps/csms`, `apps/ocpp-gateway`, `apps/ocpp-core`, `apps/message-processor`, `packages/ocpp-protocol`, `packages/ocpp-schemas`) üzerinden çalışır; OCPP wire path değişmez (`web` → `/ws/{cpId}` → `ocpp-gateway` → MQTT).
+
 ---
 
 ## Dependency map

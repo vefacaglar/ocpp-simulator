@@ -1,24 +1,20 @@
 # Docker Compose for the local OCPP simulator v4.3 stack.
 #
 # Services (in dependency order):
-#   postgres         shared PostgreSQL (simulator_api + ocpp_core DBs)
+#   postgres         PostgreSQL for ocpp-core
 #   mqtt             local Mosquitto broker
 #   ocpp-core        canonical log + transactions + business
 #   message-processor CP→server response producer
 #   ocpp-gateway     dumb WebSocket↔MQTT bridge
-#   simulator-api    UI management API
-#   web              Vue UI (nginx serving Vite build)
+#   web              Vue UI (browser-local config, nginx serving Vite build)
 #
 # Optional profile (started with `docker compose --profile csms up`):
 #   csms             mock OCPP Central System (standalone test server)
 #
 # Boundary invariants enforced here:
-#   - simulator-api does NOT depend on mqtt. No MQTT_BROKER_URL env,
-#     no depends_on. OCPP frame transport is gateway's job.
 #   - ocpp-gateway, message-processor, ocpp-core depend on mqtt.
-#   - web depends on simulator-api only.
-#   - Both backend services share one postgres container but use
-#     separate logical databases.
+#   - web only reverse-proxies OCPP WebSocket traffic to ocpp-gateway.
+#   - Charge point config and UI logs are stored in browser IndexedDB.
 
 name: ocpp-simulator
 
@@ -113,24 +109,6 @@ services:
       - "7080:7080"
     restart: unless-stopped
 
-  simulator-api:
-    build:
-      context: .
-      dockerfile: apps/simulator-api/Dockerfile
-    image: ocpp-simulator-api:local
-    container_name: simulator-api
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/simulator_api?sslmode=disable
-      PORT: "7070"
-    ports:
-      - "7070:7070"
-    restart: unless-stopped
-    # Deliberately NO depends_on: mqtt. simulator-api must remain
-    # ignorant of the OCPP transport.
-
   web:
     build:
       context: .
@@ -138,7 +116,7 @@ services:
     image: ocpp-web:local
     container_name: ocpp-web
     depends_on:
-      - simulator-api
+      - ocpp-gateway
     ports:
       - "5173:80"
     restart: unless-stopped

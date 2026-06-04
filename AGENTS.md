@@ -25,23 +25,22 @@ This is an **OCPP simulator**, not a generic web app. The browser is a control s
 Keep these communication paths separate:
 1. **Vue simulated charge point → ocpp-gateway**: one OCPP WebSocket session per simulated unit. The Vue simulator opens one socket per charge point and sends raw OCPP-J frames over that unit's connection. This must never become one shared socket for all units.
 2. **ocpp-gateway → MQTT → message-processor/ocpp-core**: the gateway publishes inbound raw frames to `ocpp/{chargePointId}/in`, subscribes to `ocpp/{chargePointId}/out`, and writes outbound raw frames to the matching charge point WebSocket. MQTT payloads are raw OCPP-J arrays only.
-3. **Vue client → simulator-api realtime**: `/api/realtime` is only for live logs/state/events. It is not a replacement for the OCPP socket.
+3. **Vue client → browser IndexedDB**: charge point config, connector config, selected unit, and UI live logs are browser-local. This is not a replacement for the OCPP socket.
 4. **External/test client → ocpp-core**: CSMS-initiated commands such as `RemoteStartTransaction` enter through `ocpp-core` internal APIs, then `ocpp-core` publishes the raw OCPP CALL to `ocpp/{chargePointId}/out`.
 
 Local charge point actions such as plug/unplug, Authorize, StartTransaction, StopTransaction, MeterValues, and StatusNotification must be emitted by that simulated charge point over its own OCPP WebSocket. Do not reroute those actions through generic runtime command APIs as the primary behavior.
 
 Target service split:
-1. **simulator-api**: UI management API only. It owns charge point/connector CRUD, settings, app config DB, `/api/realtime`, and `/api/health`. It MUST NOT generate, parse, proxy to another backend, or publish OCPP frames.
-2. **ocpp-gateway**: dumb WebSocket edge. Charge point clients connect here. It publishes inbound raw OCPP frames unchanged to MQTT `ocpp/{chargePointId}/in`, subscribes to `ocpp/{chargePointId}/out`, and writes outbound raw OCPP frames unchanged to the correct WebSocket. It MUST NOT own business state, connector state machines, meter generators, transactions, or DB writes.
-3. **message-processor**: response producer. It reads `ocpp/+/in`, parses raw OCPP-J arrays, responds to supported CP-to-server OCPP 1.6J CALLs, calls `ocpp-core` for business decisions such as Authorize/StartTransaction/StopTransaction, and publishes raw CALLRESULT/CALLERROR frames to `ocpp/{chargePointId}/out`. It has no DB and writes consume/publish audit events only to stdout/log.
-4. **ocpp-core**: canonical log and business owner. It owns the `ocpp_core` database, persists raw `ocpp/+/in` and `ocpp/+/out` topic messages as the source-of-truth OCPP log, answers message-processor business callbacks, initializes transaction numeric IDs from `MAX(numeric_id)`, and publishes CSMS-initiated CALLs to `ocpp/{chargePointId}/out`.
-5. **web**: UI plus per-charge-point local OCPP simulation. It opens one WebSocket per simulated charge point to `ocpp-gateway`, owns client-side connector state, meter generation, and transaction holder state. Browser refresh losing local CP simulation state is an accepted local-simulator tradeoff.
+1. **ocpp-gateway**: dumb WebSocket edge. Charge point clients connect here. It publishes inbound raw OCPP frames unchanged to MQTT `ocpp/{chargePointId}/in`, subscribes to `ocpp/{chargePointId}/out`, and writes outbound raw OCPP frames unchanged to the correct WebSocket. It MUST NOT own business state, connector state machines, meter generators, transactions, or DB writes.
+2. **message-processor**: response producer. It reads `ocpp/+/in`, parses raw OCPP-J arrays, responds to supported CP-to-server OCPP 1.6J CALLs, calls `ocpp-core` for business decisions such as Authorize/StartTransaction/StopTransaction, and publishes raw CALLRESULT/CALLERROR frames to `ocpp/{chargePointId}/out`. It has no DB and writes consume/publish audit events only to stdout/log.
+3. **ocpp-core**: canonical log and business owner. It owns the `ocpp_core` database, persists raw `ocpp/+/in` and `ocpp/+/out` topic messages as the source-of-truth OCPP log, answers message-processor business callbacks, initializes transaction numeric IDs from `MAX(numeric_id)`, and publishes CSMS-initiated CALLs to `ocpp/{chargePointId}/out`.
+4. **web**: UI plus per-charge-point local OCPP simulation. It opens one WebSocket per simulated charge point to `ocpp-gateway`, owns browser-local charge point/connector config, client-side connector state, meter generation, transaction holder state, and UI logs.
 
 MQTT payloads must also stay raw OCPP-J arrays. Topic names carry `chargePointId` and direction; payloads must not be wrapped.
 
-Local development should move toward Docker Compose: MQTT broker, `simulator-api`, `ocpp-gateway`, `message-processor`, `ocpp-core`, and `web` should be runnable together. Service Dockerfiles should stay service-scoped.
+Local development uses Docker Compose for PostgreSQL, MQTT broker, `ocpp-gateway`, `message-processor`, `ocpp-core`, and `web`. Service Dockerfiles should stay service-scoped.
 
-Runtime vs. persistence: active connections, timers, loops, and transaction state live **in memory**; PostgreSQL stores config + history. PostgreSQL is not the source of truth for live runtime state.
+Runtime vs. persistence: active connections, timers, loops, and transaction state live **in memory**; browser IndexedDB stores UI config/logs; PostgreSQL stores `ocpp-core` canonical OCPP history. PostgreSQL is not the source of truth for live runtime state.
 
 Transaction identity is **dual** (`plan.md` §7.6, §8.4, §13): every transaction has an internal GUID (`transactions.id`, also the 2.0.1 wire id) and a `numeric_id` (1.6J wire id, assigned asynchronously by the CSMS in `StartTransaction.conf`).
 
@@ -49,18 +48,17 @@ Transaction identity is **dual** (`plan.md` §7.6, §8.4, §13): every transacti
 
 ```
 apps/
-  api/              # Current combined Go API/runtime; target replacement is simulator-api + gateway/processor/core
-  simulator-api/    # Target: UI management API/config DB/realtime, no OCPP frames
   ocpp-gateway/     # Target: dumb WebSocket edge and MQTT bridge
   message-processor/ # Target: CP-to-server response producer + stdout audit
   ocpp-core/        # Target: canonical OCPP logs + transactions/business
-  web/              # Vue 3 + Vite + TS + Pinia
+  web/              # Vue 3 + Vite + TS + Pinia + browser IndexedDB
   csms/             # Mock OCPP Central System (standalone test server, no DB)
 packages/
+  ocpp-protocol/    # Go module: public OCPP codec/message/protocol package
   ocpp-schemas/     # Go module: official OCPP JSON schemas (single source of truth) + embed + Validate()
   shared/           # Shared TS types / generated client
   config/           # Shared frontend config
-go.work             # Links apps/simulator-api, apps/csms, apps/ocpp-gateway, apps/ocpp-core, apps/message-processor, packages/ocpp-protocol, packages/ocpp-schemas
+go.work             # Links apps/csms, apps/ocpp-gateway, apps/ocpp-core, apps/message-processor, packages/ocpp-protocol, packages/ocpp-schemas
 plan.md             # Full architecture & development plan (authoritative)
 ```
 
@@ -68,11 +66,9 @@ plan.md             # Full architecture & development plan (authoritative)
 
 ```
 pnpm install                              # install JS deps
-pnpm dev                                  # turbo dev (web + api)
-pnpm dev:api                              # Go API only
+pnpm dev                                  # make dev: OCPP stack + web
 pnpm dev:web                              # Vue only
 pnpm dev:csms                             # mock Central System
-cd apps/simulator-api && go test ./...      # target
 cd apps/ocpp-gateway && go test ./...       # target
 cd apps/message-processor && go test ./...  # target
 cd apps/ocpp-core && go test ./...          # target
@@ -81,14 +77,14 @@ cd packages/ocpp-protocol && go test ./...  # target
 cd packages/ocpp-schemas && go test ./...
 ```
 
-Default target ports/URLs: UI realtime `ws://localhost:7070/api/realtime`; OCPP gateway session `ws://localhost:7080/ws/{chargePointId}`; mock CSMS `ws://localhost:8080/ocpp/{chargePointId}`.
+Default target ports/URLs: OCPP gateway session `ws://localhost:7080/ws/{chargePointId}`; mock CSMS `ws://localhost:8080/ocpp/{chargePointId}`.
 
 ## Conventions
 
 - **Backend stack**: Go, simple HTTP router, sqlc/lightweight DB layer, goose/golang-migrate migrations, gorilla or nhooyr WebSocket. Keep the simulator runtime independent of the HTTP framework and OCPP independent of persistence.
-- **Frontend stack**: Vue 3, Vite, TS, Pinia, Vue Router, native WebSocket. The dashboard is a simulator control room. For CP-initiated behavior it drives the selected unit's own OCPP session via `ocpp-gateway`; `/api/realtime` remains observation-only.
+- **Frontend stack**: Vue 3, Vite, TS, Pinia, browser IndexedDB, native WebSocket. The dashboard is a simulator control room. For CP-initiated behavior it drives the selected unit's own OCPP session via `ocpp-gateway`.
 - **Naming** (`plan.md` §20): use specific names — `ChargePointInstance`, `ChargePointRegistry`, `OcppWebSocketClient`, `ConnectorStateMachine`, `MeterValueGenerator`, `RealtimeHub`, `RuntimeEventBus`, `ProtocolFactory`, `PendingCallRegistry`. Avoid `Manager`/`Helper`/`Util`/`Processor`.
-- **Errors are visible in the UI** (`plan.md` §18): clear API error + `runtime.error` realtime event + persisted runtime event when useful.
+- **Errors are visible in the UI** (`plan.md` §18): clear UI error + `runtime.error` log event when useful.
 - **Two log kinds** kept conceptually separate (`plan.md` §19): OCPP message logs vs. runtime events.
 
 ## Testing

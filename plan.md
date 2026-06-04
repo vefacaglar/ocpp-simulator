@@ -1,5 +1,7 @@
 # OCPP Simulator Architecture & Development Plan
 
+> Current implementation note: the UI management `simulator-api` service has been removed after the web app moved charge point config, connector config, selected charge point state, and UI live logs into browser IndexedDB. The current runtime stack is `web` → `ocpp-gateway` → MQTT → `message-processor`/`ocpp-core`, with PostgreSQL used by `ocpp-core` only.
+
 ## 1. Project Summary
 
 This project is a local-first, web-based OCPP simulator for developers who need to test EV charging backends without relying on physical charge points or limited third-party simulators.

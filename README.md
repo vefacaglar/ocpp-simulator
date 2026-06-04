@@ -20,11 +20,10 @@ Vue per-CP simulator --[WS /ws/{cpId}]--> ocpp-gateway
 
 | Service | Role | Has DB | Talks MQTT |
 |---|---|---|---|
-| `simulator-api` | UI management API (CRUD, settings, realtime, health) | yes (`ocpp-simulator.db`) | **no** |
 | `ocpp-gateway` | Dumb WebSocket↔MQTT bridge, per-CP `/ws/{cpId}` | no | yes |
 | `message-processor` | CP→server response producer; asks `ocpp-core` for business decisions | no (stdout audit only) | yes |
 | `ocpp-core` | Canonical log source; StartTransaction counter; CSMS-init CALL publisher | yes (`ocpp-core.db`) | yes |
-| `web` | Vue 3 UI; one WebSocket per simulated charge point to `ocpp-gateway` | no | no |
+| `web` | Vue 3 UI; browser-local CP config/logs; one WebSocket per simulated CP | IndexedDB | no |
 | `csms` (optional) | Legacy mock Central System for end-to-end testing | no | no |
 
 The hard rules of the OCPP wire are enforced throughout:
@@ -48,7 +47,6 @@ See `plan.md` for the full design rationale and `nextplan.md` for the v4.3 split
 ```bash
 docker compose up -d --build
 # UI:       http://localhost:5173
-# API:      http://localhost:7070/api
 # Gateway:  ws://localhost:7080/ws/{chargePointId}
 # Core:     http://localhost:7090
 # Processor health: http://localhost:7091
@@ -66,23 +64,23 @@ docker run --rm --network ocpp-simulator_default -v "$PWD/scripts:/scripts" \
 
 ### Local dev with vite HMR + backends in compose
 
-The default dev workflow: `make dev` brings up the 5 backends in
-docker compose (mqtt, simulator-api, ocpp-gateway,
-message-processor, ocpp-core) and then runs the Vue dev server
-with hot-reload. The web container is intentionally excluded
-so the UI sees source edits without a rebuild.
+The default dev workflow: `make dev` brings up the backend OCPP
+stack in docker compose (mqtt, ocpp-gateway, message-processor,
+ocpp-core, postgres) and then runs the Vue dev server with
+hot-reload. Charge point config and UI logs live in browser
+IndexedDB, so no UI management API is required.
 
 ```bash
 make dev                # backends in compose + vite at :5173
 make down               # tear down the backend stack
 make dev-stack          # backends only (no UI)
 make dev-web            # vite only (assumes backends are up)
-make dev-backend:simulator-api    # single Go service via go run,
-make dev-backend:ocpp-gateway      # bypasses compose. Each target
-make dev-backend:ocpp-core         # uses the env vars that match the
-make dev-backend:message-processor  # compose topology.
+make dev-backend:ocpp-gateway      # single Go service via go run,
+make dev-backend:ocpp-core         # bypasses compose. Each target
+make dev-backend:message-processor  # uses the env vars that match the
+                                    # compose topology.
 make dev-backend:csms
-make test               # 7 Go module tests with GOWORK=off
+make test               # 6 Go module tests with GOWORK=off
 make wire-dump          # run a fake CP, capture raw OCPP frames
 ```
 
@@ -93,7 +91,6 @@ Run `make help` for the full list.
 Every Go module is self-contained: `go.mod` has the `require`/`replace` directives it needs, so tests work both with `go.work` and with `GOWORK=off` from inside the module directory.
 
 ```bash
-cd apps/simulator-api   && go test ./...
 cd apps/ocpp-gateway    && go test ./...
 cd apps/message-processor && go test ./...
 cd apps/ocpp-core       && go test ./...
@@ -106,11 +103,10 @@ cd packages/ocpp-schemas  && go test ./...
 
 ```
 apps/
-  simulator-api/    # UI management API + config DB + /api/realtime
   ocpp-gateway/     # Dumb WebSocket edge; per-CP /ws/{cpId}; raw frame bridge
   message-processor/ # CP→server response producer; no DB; stdout audit
   ocpp-core/        # Canonical log + transactions + business + CSMS-init CALL
-  web/              # Vue 3 dashboard + per-CP OCPP simulation
+  web/              # Vue 3 dashboard + browser-local per-CP OCPP simulation
   csms/             # Optional legacy/mock Central System
 packages/
   ocpp-protocol/    # Public OCPP codec/message/protocol package

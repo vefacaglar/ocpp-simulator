@@ -2,9 +2,8 @@
   "name": "ocpp-simulator",
   "private": true,
   "scripts": {
-    "dev:stack": "docker compose up -d --wait mqtt ocpp-core message-processor ocpp-gateway simulator-api",
+    "dev:stack": "docker compose up -d --wait mqtt ocpp-core message-processor ocpp-gateway",
     "dev:web": "pnpm --filter web dev",
-    "dev:simulator-api": "cd apps/simulator-api && go run ./cmd/server",
     "dev:ocpp-gateway": "cd apps/ocpp-gateway && go run ./cmd/gateway",
     "dev:ocpp-core": "cd apps/ocpp-core && go run ./cmd/core",
     "dev:message-processor": "cd apps/message-processor && go run ./cmd/processor",

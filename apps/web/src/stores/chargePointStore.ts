@@ -100,6 +100,19 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     return cpStates.value.get(cpId)?.connectionStatus ?? 'disconnected'
   }
 
+  function setRuntime(cpId: string, runtime: ChargePointRuntime) {
+    const next = new Map(cpStates.value)
+    next.set(cpId, runtime)
+    cpStates.value = next
+  }
+
+  function updateRuntime(cpId: string, update: (runtime: ChargePointRuntime) => void) {
+    const runtime = cpStates.value.get(cpId)
+    if (!runtime) return
+    update(runtime)
+    setRuntime(cpId, runtime)
+  }
+
   const chargePointsWithStatus = computed(() => {
     return chargePoints.value.map(cp => ({
       ...cp,
@@ -215,16 +228,22 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       ocppVersion,
       centralSystemUrl: settingsStore.centralSystemUrl,
       onOpen: () => {
-        runtime.connectionStatus = 'connected'
-        runtime.registration = 'pending'
+        updateRuntime(cpId, (current) => {
+          current.connectionStatus = 'connected'
+          current.registration = 'pending'
+        })
         sendBootNotification(cpId)
       },
       onClose: () => {
-        runtime.connectionStatus = 'disconnected'
+        updateRuntime(cpId, (current) => {
+          current.connectionStatus = 'disconnected'
+        })
       },
       onError: () => {
-        runtime.connectionStatus = 'disconnected'
-        runtime.registration = 'disconnected'
+        updateRuntime(cpId, (current) => {
+          current.connectionStatus = 'disconnected'
+          current.registration = 'disconnected'
+        })
         error.value = `Connection failed for ${cpId}`
       },
       onFrame: (frame) => handleOCPPFrame(cpId, frame),
@@ -242,7 +261,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       meterCounter: 0,
       meterValuesTimer: null,
     }
-    cpStates.value.set(cpId, runtime)
+    setRuntime(cpId, runtime)
     client.connect()
   }
 
@@ -263,7 +282,9 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       state.meterValuesTimer = null
     }
     state.client.close()
-    cpStates.value.delete(cpId)
+    const next = new Map(cpStates.value)
+    next.delete(cpId)
+    cpStates.value = next
   }
 
   // ─── OCPP frame dispatch ──────────────────────────────────────────────
@@ -381,12 +402,15 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     if (status === 'Accepted') {
       state.registration = 'accepted'
       state.heartbeatInterval = interval
+      setRuntime(cpId, state)
       sendInitialStatusNotifications(cpId)
       scheduleHeartbeat(cpId)
     } else if (status === 'Pending') {
       state.registration = 'pending'
+      setRuntime(cpId, state)
     } else if (status === 'Rejected') {
       state.registration = 'rejected'
+      setRuntime(cpId, state)
       // Retry after the suggested interval.
       setTimeout(() => {
         if (cpStates.value.has(cpId)) {

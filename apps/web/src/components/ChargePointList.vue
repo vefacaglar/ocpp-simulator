@@ -26,10 +26,10 @@ async function onDelete(id: string, e: Event) {
       <button class="btn-add" title="Add Charge Point" @click="showModal = true">+</button>
     </div>
     <div class="panel-body">
-      <div v-if="store.loading" class="empty-state">Loading...</div>
+      <div v-if="store.loading" class="empty-state">Loading…</div>
       <div v-else-if="store.chargePoints.length === 0" class="empty-state">
-        <p>No charge points yet.</p>
-        <p class="hint">Click + to add one.</p>
+        <p class="empty-title">No charge points yet.</p>
+        <p class="hint">Press + to add one.</p>
       </div>
       <div v-else class="cp-items">
         <div
@@ -56,22 +56,148 @@ async function onDelete(id: string, e: Event) {
 </template>
 
 <style scoped>
-.charge-point-list { display: flex; flex-direction: column; height: 100%; background: #fff; border-right: 1px solid #ddd; }
-.panel-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-bottom: 1px solid #ddd; background: #fafafa; }
-.panel-header h2 { font-size: 0.85rem; font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; color: #666; }
-.btn-add { width: 24px; height: 24px; border: 1px solid #ccc; border-radius: 4px; background: transparent; color: #666; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.btn-add:hover { background: #eee; color: #333; }
-.panel-body { flex: 1; overflow-y: auto; padding: 0.5rem; }
-.empty-state { text-align: center; margin-top: 2rem; color: #999; font-size: 0.85rem; }
-.empty-state .hint { margin-top: 0.25rem; font-size: 0.75rem; color: #bbb; }
-.cp-items { display: flex; flex-direction: column; gap: 0.25rem; }
-.cp-item { padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; border: 1px solid transparent; transition: all 0.15s; }
-.cp-item:hover { background: #f0f0f5; }
-.cp-item.selected { background: #e8e8f4; border-color: #b0b0d0; }
-.cp-info { display: flex; align-items: center; justify-content: space-between; }
-.cp-id { font-size: 0.85rem; font-weight: 600; color: #1a1a2e; }
-.cp-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 0.25rem; font-size: 0.7rem; color: #999; }
-.btn-delete { background: none; border: none; color: #999; cursor: pointer; font-size: 1rem; padding: 0 4px; }
-.btn-delete:hover { color: #e06060; }
-.error-bar { padding: 0.5rem 1rem; background: #fde8e8; color: #c53030; font-size: 0.75rem; border-top: 1px solid #fcd5d5; }
+.charge-point-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-elevated);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.panel-header h2 {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 500;
+  margin: 0;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.btn-add {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.btn-add:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 16px;
+}
+
+.empty-state {
+  text-align: center;
+  margin-top: 3rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.empty-title {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.empty-state .hint {
+  margin-top: 6px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.cp-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cp-item {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.cp-item:hover {
+  background: rgba(245, 242, 235, 0.03);
+  border-color: var(--border-subtle);
+}
+.cp-item.selected {
+  background: var(--accent-soft);
+  border-color: var(--border-strong);
+}
+
+.cp-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cp-id {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
+}
+
+.cp-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.btn-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.btn-delete:hover {
+  color: var(--danger);
+}
+
+.error-bar {
+  padding: 10px 24px;
+  background: rgba(200, 123, 95, 0.08);
+  color: var(--status-fault);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  border-top: 1px solid var(--border-subtle);
+  letter-spacing: 0.04em;
+}
 </style>

@@ -13,14 +13,26 @@ function badgeClass(status: string) {
 </template>
 
 <style scoped>
-.badge { font-size: 0.65rem; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; font-weight: 600; }
-.badge.disconnected { background: #fde8e8; color: #c53030; }
-.badge.connecting { background: #fef9c3; color: #a16207; }
-.badge.connected { background: #dcfce7; color: #16a34a; }
-.badge.available { background: #dcfce7; color: #16a34a; }
-.badge.preparing { background: #fef9c3; color: #a16207; }
-.badge.charging { background: #dbeafe; color: #2563eb; }
-.badge.finishing { background: #e8e8f0; color: #6b7280; }
-.badge.faulted { background: #fde8e8; color: #c53030; }
-.badge.unavailable { background: #f3f4f6; color: #9ca3af; }
+.badge {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.badge.disconnected { color: var(--status-fault); border-color: rgba(200, 123, 95, 0.35); }
+.badge.connecting   { color: var(--status-busy);  border-color: rgba(212, 165, 116, 0.35); }
+.badge.connected,
+.badge.available    { color: var(--status-online); border-color: rgba(184, 196, 160, 0.35); }
+.badge.preparing    { color: var(--status-busy);  border-color: rgba(212, 165, 116, 0.35); }
+.badge.charging     { color: var(--accent);       border-color: rgba(232, 223, 200, 0.45); }
+.badge.finishing    { color: var(--text-muted);   border-color: var(--border-subtle); }
+.badge.faulted      { color: var(--status-fault); border-color: rgba(200, 123, 95, 0.45); background: rgba(200, 123, 95, 0.06); }
+.badge.unavailable  { color: var(--text-muted);   border-color: var(--border-subtle); }
 </style>

@@ -64,10 +64,9 @@
 
 .panel-header h2 {
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: 500;
   margin: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.02em;
   color: #8888aa;
 }
 

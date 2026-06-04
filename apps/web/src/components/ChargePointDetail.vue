@@ -39,60 +39,65 @@ function handleAuthorize(connectorId: number) {
 
 <template>
   <div class="charge-point-detail">
-    <div class="panel-header">
-      <h2>Control</h2>
-    </div>
     <div class="panel-body">
       <div v-if="!store.selectedDetail" class="empty-state">
-        <p>Select a charge point to begin.</p>
+        <p class="empty-title">No charge point selected.</p>
+        <p class="hint">Pick one from the left to begin.</p>
       </div>
       <div v-else class="detail-content">
         <div class="section">
-          <h3>{{ store.selectedDetail.chargePoint.id }}</h3>
-          <div class="field"><span class="label">Name</span><span>{{ store.selectedDetail.chargePoint.name }}</span></div>
-          <div class="field"><span class="label">Version</span><span>{{ store.selectedDetail.chargePoint.ocppVersion }}</span></div>
-          <div class="field"><span class="label">URL</span><span class="url">{{ store.selectedDetail.chargePoint.centralSystemUrl }}</span></div>
-          <div class="field">
-            <span class="label">Status</span>
-            <span class="status" :class="store.getConnectionStatus(store.selectedDetail.chargePoint.id)">
-              {{ store.getConnectionStatus(store.selectedDetail.chargePoint.id) }}
-            </span>
+          <div class="section-eyebrow">— Identity</div>
+          <h3 class="section-title">{{ store.selectedDetail.chargePoint.id }}</h3>
+          <div class="kv-list">
+            <div class="kv"><span class="kv-label">Name</span><span class="kv-value">{{ store.selectedDetail.chargePoint.name }}</span></div>
+            <div class="kv"><span class="kv-label">Version</span><span class="kv-value">{{ store.selectedDetail.chargePoint.ocppVersion }}</span></div>
+            <div class="kv"><span class="kv-label">URL</span><span class="kv-value mono">{{ store.selectedDetail.chargePoint.centralSystemUrl }}</span></div>
+            <div class="kv">
+              <span class="kv-label">Status</span>
+              <span class="status-pill" :class="store.getConnectionStatus(store.selectedDetail.chargePoint.id)">
+                {{ store.getConnectionStatus(store.selectedDetail.chargePoint.id) }}
+              </span>
+            </div>
+            <div v-if="connected" class="kv">
+              <span class="kv-label">Registration</span>
+              <span class="status-pill" :class="regState">{{ regState }}</span>
+            </div>
           </div>
-          <div v-if="connected" class="field"><span class="label">Registration</span><span class="reg-state" :class="regState">{{ regState }}</span></div>
         </div>
 
         <div class="section">
-          <div class="section-header">
-            <h3>Connection</h3>
-          </div>
+          <div class="section-eyebrow">— Connection</div>
           <div class="connection-actions">
-            <button v-if="!connected" class="btn-connect" @click="store.connectChargePoint()">Connect</button>
-            <button v-else class="btn-disconnect" @click="store.disconnectChargePoint()">Disconnect</button>
-            <button class="btn-action" :disabled="!connected" @click="store.bootChargePoint()">Boot</button>
-            <button class="btn-action" :disabled="!registered" @click="store.heartbeatChargePoint()">Heartbeat</button>
+            <button v-if="!connected" class="btn btn-primary" @click="store.connectChargePoint()">Connect</button>
+            <button v-else class="btn btn-danger" @click="store.disconnectChargePoint()">Disconnect</button>
+            <button class="btn" :disabled="!connected" @click="store.bootChargePoint()">Boot</button>
+            <button class="btn" :disabled="!registered" @click="store.heartbeatChargePoint()">Heartbeat</button>
           </div>
         </div>
 
         <div class="section">
           <div class="section-header">
-            <h3>Connectors</h3>
-            <button class="btn-small" @click="store.addConnector()">+ Add</button>
+            <div>
+              <div class="section-eyebrow">— Connectors</div>
+              <h3 class="section-title">Active Ports</h3>
+            </div>
+            <button class="btn btn-small" @click="store.addConnector()">+ Add</button>
           </div>
           <div v-if="connectors.length === 0" class="empty-hint">No connectors.</div>
           <div v-else class="connector-list">
             <div v-for="c in connectors" :key="c.id" class="connector-card">
               <div class="connector-top">
                 <span class="connector-num">Connector {{ c.connectorNumber }}</span>
-                <span class="connector-status" :class="statusClass(connectorStatus(c.connectorNumber))">
+                <span class="status-pill" :class="statusClass(connectorStatus(c.connectorNumber))">
                   {{ connectorStatus(c.connectorNumber) }}
                 </span>
               </div>
 
               <!-- Available: Plug In, Fault, Disable -->
               <div v-if="connectorStatus(c.connectorNumber) === 'Available' && registered" class="connector-actions">
-                <button class="btn-action btn-plug" @click="store.plugInConnector(c.connectorNumber)">Plug In</button>
-                <button class="btn-action btn-fault" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
-                <button class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Unavailable')">Disable</button>
+                <button class="btn" @click="store.plugInConnector(c.connectorNumber)">Plug In</button>
+                <button class="btn btn-danger-soft" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
+                <button class="btn" @click="store.setConnectorStatus(c.connectorNumber, 'Unavailable')">Disable</button>
               </div>
 
               <!-- Preparing: Authorize (with idTag input), Unplug, Fault -->
@@ -106,34 +111,34 @@ function handleAuthorize(connectorId: number) {
                     @input="setIdTag(c.connectorNumber, ($event.target as HTMLInputElement).value)"
                     @keyup.enter="handleAuthorize(c.connectorNumber)"
                   />
-                  <button class="btn-action btn-authorize" @click="handleAuthorize(c.connectorNumber)">Authorize</button>
+                  <button class="btn btn-primary" @click="handleAuthorize(c.connectorNumber)">Authorize</button>
                 </div>
                 <div class="action-row">
-                  <button class="btn-action" @click="store.unplugConnector(c.connectorNumber)">Unplug</button>
-                  <button class="btn-action btn-fault" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
+                  <button class="btn" @click="store.unplugConnector(c.connectorNumber)">Unplug</button>
+                  <button class="btn btn-danger-soft" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
                 </div>
               </div>
 
               <!-- Charging: Stop, MeterValues, Fault -->
               <div v-else-if="connectorStatus(c.connectorNumber) === 'Charging'" class="connector-actions">
-                <button class="btn-action btn-stop" @click="store.stopConnectorTransaction(c.connectorNumber)">Stop</button>
-                <button class="btn-action" @click="store.sendConnectorMeterValues(c.connectorNumber)">MeterValues</button>
-                <button class="btn-action btn-fault" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
+                <button class="btn btn-danger-soft" @click="store.stopConnectorTransaction(c.connectorNumber)">Stop</button>
+                <button class="btn" @click="store.sendConnectorMeterValues(c.connectorNumber)">MeterValues</button>
+                <button class="btn btn-danger-soft" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
               </div>
 
               <!-- Finishing: Unplug -->
               <div v-else-if="connectorStatus(c.connectorNumber) === 'Finishing'" class="connector-actions">
-                <button class="btn-action btn-plug" @click="store.unplugConnector(c.connectorNumber)">Unplug</button>
+                <button class="btn" @click="store.unplugConnector(c.connectorNumber)">Unplug</button>
               </div>
 
               <!-- Faulted: Clear -->
               <div v-else-if="connectorStatus(c.connectorNumber) === 'Faulted'" class="connector-actions">
-                <button class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Available')">Clear Fault</button>
+                <button class="btn" @click="store.setConnectorStatus(c.connectorNumber, 'Available')">Clear Fault</button>
               </div>
 
               <!-- Unavailable: Enable -->
               <div v-else-if="connectorStatus(c.connectorNumber) === 'Unavailable'" class="connector-actions">
-                <button class="btn-action" @click="store.setConnectorStatus(c.connectorNumber, 'Available')">Enable</button>
+                <button class="btn" @click="store.setConnectorStatus(c.connectorNumber, 'Available')">Enable</button>
               </div>
 
               <!-- Default fallback (not registered) -->
@@ -149,62 +154,272 @@ function handleAuthorize(connectorId: number) {
 </template>
 
 <style scoped>
-.charge-point-detail { display: flex; flex-direction: column; height: 100%; background: #f5f5f8; }
-.panel-header { display: flex; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid #ddd; background: #fafafa; }
-.panel-header h2 { font-size: 0.85rem; font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; color: #666; }
-.panel-body { flex: 1; overflow-y: auto; padding: 1rem; }
-.empty-state { text-align: center; margin-top: 2rem; color: #999; font-size: 0.85rem; }
-.detail-content { display: flex; flex-direction: column; gap: 1.5rem; }
-.section h3 { font-size: 0.9rem; color: #333; margin-bottom: 0.5rem; }
-.section-header { display: flex; align-items: center; justify-content: space-between; }
-.section-header h3 { margin-bottom: 0; }
-.field { display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.8rem; }
-.label { color: #999; }
-.url { font-family: monospace; font-size: 0.75rem; color: #6366f1; }
-.status { font-size: 0.7rem; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
-.status.disconnected { background: #fde8e8; color: #c53030; }
-.status.connected { background: #dcfce7; color: #16a34a; }
-.reg-state { font-size: 0.7rem; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; font-weight: 600; }
-.reg-state.pending { background: #fef9c3; color: #a16207; }
-.reg-state.accepted { background: #dcfce7; color: #16a34a; }
-.reg-state.rejected { background: #fde8e8; color: #c53030; }
-.btn-small { padding: 0.25rem 0.5rem; font-size: 0.75rem; border: 1px solid #ccc; border-radius: 4px; background: transparent; color: #666; cursor: pointer; }
-.btn-small:hover { background: #eee; color: #333; }
-.empty-hint { font-size: 0.8rem; color: #999; }
-.connector-list { display: flex; flex-direction: column; gap: 0.5rem; }
-.connector-card { padding: 0.5rem 0.75rem; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
-.connector-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
-.connector-num { font-size: 0.8rem; font-weight: 600; color: #333; }
-.connector-status { font-size: 0.65rem; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
-.connector-status.available { background: #dcfce7; color: #16a34a; }
-.connector-status.charging { background: #dbeafe; color: #2563eb; }
-.connector-status.preparing { background: #fef9c3; color: #a16207; }
-.connector-status.finishing { background: #e8e8f0; color: #6b7280; }
-.connector-status.faulted { background: #fde8e8; color: #c53030; }
-.connector-status.unavailable { background: #f3f4f6; color: #9ca3af; }
-.connector-actions { display: flex; gap: 0.25rem; flex-wrap: wrap; }
-.connector-actions-col { display: flex; flex-direction: column; gap: 0.35rem; }
-.connection-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-.btn-connect { padding: 0.4rem 1rem; font-size: 0.8rem; border: 1px solid #16a34a; border-radius: 4px; background: #16a34a; color: #fff; cursor: pointer; font-weight: 600; }
-.btn-connect:hover { background: #15803d; }
-.btn-disconnect { padding: 0.4rem 1rem; font-size: 0.8rem; border: 1px solid #dc2626; border-radius: 4px; background: #dc2626; color: #fff; cursor: pointer; font-weight: 600; }
-.btn-disconnect:hover { background: #b91c1c; }
-.btn-action { padding: 0.2rem 0.5rem; font-size: 0.65rem; border: 1px solid #ddd; border-radius: 3px; background: #fff; color: #666; cursor: pointer; }
-.btn-action:hover { background: #f5f5f8; color: #333; }
-.btn-action:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-action.btn-stop { border-color: #fca5a5; color: #dc2626; }
-.btn-action.btn-stop:hover { background: #fef2f2; }
-.btn-action.btn-fault { border-color: #fca5a5; color: #dc2626; }
-.btn-action.btn-plug { border-color: #86efac; color: #16a34a; }
-.btn-action.btn-plug:hover { background: #f0fdf4; }
-.btn-action.btn-authorize { border-color: #93c5fd; color: #2563eb; font-weight: 600; }
-.btn-action.btn-authorize:hover { background: #eff6ff; }
-.btn-action.btn-dev { border-color: #d8b4fe; color: #7c3aed; font-style: italic; font-size: 0.6rem; }
-.btn-action.btn-dev:hover { background: #faf5ff; }
-.auth-row { display: flex; gap: 0.25rem; align-items: center; }
-.action-row { display: flex; gap: 0.25rem; }
-.dev-tools { display: flex; gap: 0.25rem; align-items: center; margin-top: 0.15rem; padding-top: 0.25rem; border-top: 1px dashed #e5e7eb; }
-.dev-label { font-size: 0.55rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em; }
-.idtag-input { padding: 0.2rem 0.4rem; font-size: 0.65rem; border: 1px solid #d1d5db; border-radius: 3px; width: 120px; font-family: monospace; }
-.idtag-input:focus { outline: none; border-color: #93c5fd; box-shadow: 0 0 0 1px #93c5fd; }
+.charge-point-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+}
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 40px 40px 40px;
+}
+
+.empty-state {
+  text-align: center;
+  margin-top: 4rem;
+}
+
+.empty-title {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+}
+
+.empty-state .hint {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  max-width: 720px;
+}
+
+.section-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.section-title {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 20px 0;
+  letter-spacing: 0.04em;
+}
+
+.section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.82rem;
+}
+
+.kv-label {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.kv-value {
+  color: var(--text-primary);
+}
+
+.kv-value.mono {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.status-pill {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  background: transparent;
+  white-space: nowrap;
+}
+
+.status-pill.disconnected { color: var(--status-fault); border-color: rgba(200, 123, 95, 0.35); }
+.status-pill.connecting   { color: var(--status-busy);  border-color: rgba(212, 165, 116, 0.35); }
+.status-pill.connected,
+.status-pill.available    { color: var(--status-online); border-color: rgba(184, 196, 160, 0.35); }
+.status-pill.preparing    { color: var(--status-busy);  border-color: rgba(212, 165, 116, 0.35); }
+.status-pill.charging     { color: var(--accent);       border-color: rgba(232, 223, 200, 0.45); }
+.status-pill.finishing    { color: var(--text-muted);   border-color: var(--border-subtle); }
+.status-pill.faulted      { color: var(--status-fault); border-color: rgba(200, 123, 95, 0.45); background: rgba(200, 123, 95, 0.06); }
+.status-pill.unavailable  { color: var(--text-muted);   border-color: var(--border-subtle); }
+.status-pill.pending      { color: var(--status-busy);  border-color: rgba(212, 165, 116, 0.35); }
+.status-pill.accepted     { color: var(--status-online); border-color: rgba(184, 196, 160, 0.35); }
+.status-pill.rejected     { color: var(--status-fault); border-color: rgba(200, 123, 95, 0.45); }
+
+.connection-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: rgba(245, 242, 235, 0.32);
+  background: rgba(245, 242, 235, 0.03);
+}
+
+.btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+.btn-primary:hover:not(:disabled) {
+  background: #efe7d0;
+  color: var(--accent-ink);
+  border-color: #efe7d0;
+}
+
+.btn-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.btn-danger:hover:not(:disabled) {
+  background: rgba(200, 123, 95, 0.08);
+}
+
+.btn-danger-soft {
+  border-color: rgba(200, 123, 95, 0.40);
+  color: var(--status-fault);
+}
+.btn-danger-soft:hover:not(:disabled) {
+  background: rgba(200, 123, 95, 0.06);
+  border-color: rgba(200, 123, 95, 0.6);
+}
+
+.btn-small {
+  font-size: 0.65rem;
+  padding: 5px 10px;
+}
+
+.empty-hint {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.connector-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.connector-card {
+  padding: 16px 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-sunken);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.connector-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.connector-num {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.connector-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.connector-actions-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auth-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.action-row {
+  display: flex;
+  gap: 6px;
+}
+
+.idtag-input {
+  flex: 1;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.04em;
+  transition: border-color 0.15s;
+}
+.idtag-input::placeholder {
+  color: var(--text-muted);
+}
+.idtag-input:focus {
+  border-color: var(--border-strong);
+}
 </style>

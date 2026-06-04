@@ -26,7 +26,10 @@ async function onSubmit() {
   <div class="modal-overlay" @click.self="emit('close')">
     <div class="modal">
       <div class="modal-header">
-        <h3>Add Charge Point</h3>
+        <div>
+          <div class="eyebrow">— New Instance</div>
+          <h3>Add Charge Point</h3>
+        </div>
         <button class="modal-close" @click="emit('close')">&times;</button>
       </div>
       <form class="modal-body" @submit.prevent="onSubmit">
@@ -50,8 +53,8 @@ async function onSubmit() {
           <input v-model="centralSystemUrl" placeholder="ws://localhost:8080/ocpp" />
         </div>
         <div class="form-actions">
-          <button type="button" class="btn-cancel" @click="emit('close')">Cancel</button>
-          <button type="submit" class="btn-submit">Create</button>
+          <button type="button" class="btn btn-cancel" @click="emit('close')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create</button>
         </div>
       </form>
     </div>
@@ -59,20 +62,140 @@ async function onSubmit() {
 </template>
 
 <style scoped>
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; z-index: 100; }
-.modal { background: #fff; border: 1px solid #ddd; border-radius: 8px; width: 400px; max-width: 90vw; box-shadow: 0 10px 40px rgba(0,0,0,0.15); }
-.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem; border-bottom: 1px solid #eee; }
-.modal-header h3 { margin: 0; font-size: 0.95rem; color: #333; }
-.modal-close { background: none; border: none; color: #999; font-size: 1.2rem; cursor: pointer; }
-.modal-close:hover { color: #333; }
-.modal-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
-.form-field { display: flex; flex-direction: column; gap: 0.25rem; }
-.form-field label { font-size: 0.75rem; color: #666; text-transform: uppercase; letter-spacing: 0.05em; }
-.form-field input, .form-field select { padding: 0.5rem; background: #f5f5f8; border: 1px solid #ddd; border-radius: 4px; color: #333; font-size: 0.85rem; }
-.form-field input:focus, .form-field select:focus { outline: none; border-color: #6366f1; }
-.form-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
-.btn-cancel { padding: 0.4rem 0.8rem; border: 1px solid #ddd; border-radius: 4px; background: transparent; color: #666; cursor: pointer; font-size: 0.8rem; }
-.btn-cancel:hover { background: #f5f5f8; }
-.btn-submit { padding: 0.4rem 0.8rem; border: 1px solid #6366f1; border-radius: 4px; background: #6366f1; color: #fff; cursor: pointer; font-size: 0.8rem; }
-.btn-submit:hover { background: #4f46e5; }
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  width: 440px;
+  max-width: 90vw;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 24px 28px 20px 28px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.modal-header h3 {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin: 0;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: color 0.15s;
+  margin-top: -4px;
+}
+.modal-close:hover { color: var(--text-primary); }
+
+.modal-body {
+  padding: 24px 28px 28px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-field label {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.form-field input,
+.form-field select {
+  padding: 10px 12px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  transition: border-color 0.15s;
+}
+.form-field input::placeholder { color: var(--text-muted); }
+.form-field input:focus,
+.form-field select:focus { border-color: var(--accent); }
+.form-field select option {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.btn {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 9px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.btn:hover {
+  color: var(--text-primary);
+  border-color: rgba(245, 242, 235, 0.32);
+}
+
+.btn-cancel { color: var(--text-muted); }
+.btn-cancel:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+.btn-primary:hover {
+  background: #efe7d0;
+  color: var(--accent-ink);
+  border-color: #efe7d0;
+}
 </style>

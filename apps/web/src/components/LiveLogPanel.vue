@@ -7,18 +7,11 @@ const rtStore = useRealtimeStore()
 const cpStore = useChargePointStore()
 
 const selectedId = computed(() => cpStore.selectedId)
-const filter = ref('all')
 const drawerEvent = ref<any>(null)
 
-const filteredEvents = computed(() => {
-  if (filter.value === 'all') return rtStore.events
-  return rtStore.events.filter((e) => {
-    if (filter.value === 'ocpp') return e.type.startsWith('ocpp.')
-    if (filter.value === 'connection') return e.type.startsWith('charge_point.') || e.type.startsWith('connector.')
-    if (filter.value === 'transaction') return e.type.startsWith('transaction.') || e.type.startsWith('meter_value.')
-    if (filter.value === 'runtime') return e.type.startsWith('runtime.')
-    return true
-  })
+const selectedEvents = computed(() => {
+  if (!selectedId.value) return []
+  return rtStore.events.filter((e) => e.chargePointId === selectedId.value).slice().reverse()
 })
 
 function formatTime(ts: string) {
@@ -52,23 +45,17 @@ function closeDrawer() {
         <h2>Live Logs</h2>
         <span class="subtitle">Realtime events</span>
       </div>
-      <span class="count" v-if="rtStore.events.length">{{ filteredEvents.length }}</span>
-    </div>
-    <div class="filter-bar">
-      <button v-for="f in ['all','ocpp','connection','transaction','runtime']" :key="f"
-        class="filter-btn" :class="{ active: filter === f }" @click="filter = f">
-        {{ f }}
-      </button>
+      <span class="count" v-if="selectedEvents.length">{{ selectedEvents.length }}</span>
     </div>
     <div class="panel-body">
       <div v-if="!selectedId" class="empty-state">
         <p class="empty-title">Select a charge point.</p>
       </div>
-      <div v-else-if="filteredEvents.length === 0" class="empty-state">
+      <div v-else-if="selectedEvents.length === 0" class="empty-state">
         <p class="empty-title">No events yet.</p>
       </div>
       <div v-else class="log-rows">
-        <div v-for="event in filteredEvents" :key="event.id" class="log-row" :class="eventClass(event.type)" @click="openDrawer(event)">
+        <div v-for="event in selectedEvents" :key="event.id" class="log-row" :class="eventClass(event.type)" @click="openDrawer(event)">
           <span class="log-time">{{ formatTime(event.timestamp) }}</span>
           <span class="log-type">{{ event.type }}</span>
           <span class="log-msg">{{ event.message }}</span>
@@ -147,36 +134,6 @@ function closeDrawer() {
   border-radius: var(--radius-sm);
   padding: 2px 9px;
   color: var(--text-secondary);
-}
-
-.filter-bar {
-  display: flex;
-  gap: 4px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: transparent;
-}
-
-.filter-btn {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.02em;
-  padding: 4px 11px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
-}
-.filter-btn:hover {
-  color: var(--text-secondary);
-  border-color: var(--border-subtle);
-}
-.filter-btn.active {
-  color: var(--accent);
-  border-color: rgba(232, 223, 200, 0.42);
-  background: var(--accent-soft);
 }
 
 .panel-body {

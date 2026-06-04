@@ -5,6 +5,7 @@ import type { ChargePoint, Connector } from '../api/chargePointsApi'
 import { GatewayClient, type IGatewayClient } from '../ocpp/gatewayClient'
 import { buildResponse, UnknownActionError, NOT_IMPLEMENTED } from '../ocpp/callResponses'
 import { uniqueId } from '../ocpp/uniqueId'
+import { useRealtimeStore } from './realtimeStore'
 
 // ConnectorState mirrors the OCPP 1.6J connector status enum plus a
 // local-only `cablePluggedIn` flag the UI uses to drive the plug-in
@@ -59,6 +60,7 @@ export interface ChargePointRuntime {
 }
 
 export const useChargePointStore = defineStore('chargePoint', () => {
+  const realtimeStore = useRealtimeStore()
   const chargePoints = ref<ChargePoint[]>([])
   const selectedId = ref<string | null>(null)
   const selectedDetail = ref<{ chargePoint: ChargePoint; connectors: Connector[] } | null>(null)
@@ -264,6 +266,8 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     const state = cpStates.value.get(cpId)
     if (!state) return
 
+    appendOcppLog(cpId, 'in', frame)
+
     const typeID = frame[0] as number
     const uniqueId = frame[1] as string
 
@@ -303,18 +307,18 @@ export const useChargePointStore = defineStore('chargePoint', () => {
         uniqueId: uid,
       })
       const resultFrame = [3, uid, responsePayload]
-      state.client.send(resultFrame)
+      sendResponseFrame(_cpId, state, resultFrame, action)
     } catch (err) {
       if (err instanceof UnknownActionError) {
         const errorFrame = [4, uid, NOT_IMPLEMENTED, `action ${action} not supported by simulator`, {}]
-        state.client.send(errorFrame)
+        sendResponseFrame(_cpId, state, errorFrame, action)
         return
       }
       // Any other error: GenericError CALLERROR. The
       // description carries the cause.
       const desc = err instanceof Error ? err.message : 'unknown error'
       const errorFrame = [4, uid, 'GenericError', desc, {}]
-      state.client.send(errorFrame)
+      sendResponseFrame(_cpId, state, errorFrame, action)
     }
   }
 
@@ -535,10 +539,65 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       console.warn('[ocpp] send dropped: socket not open', { cpId, action })
       return
     }
+    appendOcppLog(cpId, 'out', frame, action)
     const uid = frame[1] as string
     state.pendingCalls.set(uid, { action, sentAt: Date.now(), ...extra })
     state.lastMessageSentAt = Date.now()
     resetHeartbeatTimer(cpId)
+  }
+
+  function sendResponseFrame(cpId: string, state: ChargePointRuntime, frame: unknown[], action?: string) {
+    if (!state.client.send(frame)) {
+      // eslint-disable-next-line no-console
+      console.warn('[ocpp] response send dropped: socket not open', { cpId })
+      return
+    }
+    appendOcppLog(cpId, 'out', frame, action)
+    state.lastMessageSentAt = Date.now()
+  }
+
+  function appendOcppLog(cpId: string, direction: 'in' | 'out', frame: unknown[], actionOverride?: string) {
+    const messageType = frame[0] as number | undefined
+    const uniqueIdValue = typeof frame[1] === 'string' ? frame[1] as string : ''
+    const action = actionOverride ?? actionFromFrame(cpId, frame)
+    realtimeStore.appendEvent({
+      id: `${cpId}-${direction}-${uniqueIdValue || Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type: typeFromFrame(messageType, direction),
+      chargePointId: cpId,
+      direction,
+      action,
+      rawFrame: frame,
+      message: messageFromFrame(messageType, direction, action, uniqueIdValue),
+      timestamp: new Date().toISOString(),
+    })
+  }
+
+  function actionFromFrame(cpId: string, frame: unknown[]): string | undefined {
+    if (frame[0] === 2 && typeof frame[2] === 'string') return frame[2]
+    if ((frame[0] === 3 || frame[0] === 4) && typeof frame[1] === 'string') {
+      return cpStates.value.get(cpId)?.pendingCalls.get(frame[1])?.action
+    }
+    return undefined
+  }
+
+  function typeFromFrame(messageType: number | undefined, direction: 'in' | 'out'): string {
+    if (messageType === 2) return direction === 'out' ? 'ocpp.call.sent' : 'ocpp.call.received'
+    if (messageType === 3) return direction === 'out' ? 'ocpp.call_result.sent' : 'ocpp.call_result.received'
+    if (messageType === 4) return direction === 'out' ? 'ocpp.call_error.sent' : 'ocpp.call_error.received'
+    return direction === 'out' ? 'ocpp.frame.sent' : 'ocpp.frame.received'
+  }
+
+  function messageFromFrame(
+    messageType: number | undefined,
+    direction: 'in' | 'out',
+    action: string | undefined,
+    uniqueIdValue: string
+  ): string {
+    const label = action ?? `uid ${uniqueIdValue || 'unknown'}`
+    if (messageType === 2) return `${direction === 'out' ? 'Sent' : 'Received'} ${label}`
+    if (messageType === 3) return `${direction === 'out' ? 'Sent' : 'Received'} ${label} response`
+    if (messageType === 4) return `${direction === 'out' ? 'Sent' : 'Received'} ${label} error`
+    return `${direction === 'out' ? 'Sent' : 'Received'} raw frame`
   }
 
   // ─── Heartbeat scheduling ────────────────────────────────────────────

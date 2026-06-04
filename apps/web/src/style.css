@@ -1,14 +1,15 @@
 :root {
-  --bg-base: #1a1613;
-  --bg-elevated: #211c19;
-  --bg-sunken: #15110f;
+  --bg-base: #3a342f;
+  --bg-elevated: #2a2521;
+  --bg-sunken: #1f1b18;
+  --bg-center: #2a2521;
 
-  --border-subtle: rgba(245, 242, 235, 0.08);
-  --border-strong: rgba(245, 242, 235, 0.18);
+  --border-subtle: rgba(244, 241, 234, 0.08);
+  --border-strong: rgba(244, 241, 234, 0.16);
 
-  --text-primary: #f5f2eb;
-  --text-secondary: rgba(245, 242, 235, 0.62);
-  --text-muted: rgba(245, 242, 235, 0.40);
+  --text-primary: #f4f1ea;
+  --text-secondary: rgba(244, 241, 234, 0.78);
+  --text-muted: rgba(244, 241, 234, 0.50);
 
   --accent: #e8dfc8;
   --accent-ink: #1a1613;
@@ -16,11 +17,11 @@
 
   --status-online: #b8c4a0;
   --status-busy: #d4a574;
-  --status-fault: #c87b5f;
-  --status-neutral: rgba(245, 242, 235, 0.45);
+  --status-fault: #d68b6e;
+  --status-neutral: rgba(244, 241, 234, 0.55);
   --status-info: #9bb4c7;
 
-  --danger: #c87b5f;
+  --danger: #d68b6e;
 
   --radius-sm: 8px;
   --radius-md: 10px;
@@ -87,5 +88,5 @@ textarea {
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(245, 242, 235, 0.28);
+  background: rgba(244, 241, 234, 0.28);
 }

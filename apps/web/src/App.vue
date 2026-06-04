@@ -116,6 +116,11 @@ import LiveLogPanel from './components/LiveLogPanel.vue'
   border-right: none;
 }
 
+.panel-center {
+  background: var(--bg-center);
+  border-color: var(--border-strong);
+}
+
 .panel-right {
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
   border-left: none;

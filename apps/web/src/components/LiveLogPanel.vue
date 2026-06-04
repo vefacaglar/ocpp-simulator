@@ -175,7 +175,7 @@ function closeDrawer() {
 }
 .filter-btn.active {
   color: var(--accent);
-  border-color: rgba(232, 223, 200, 0.4);
+  border-color: rgba(232, 223, 200, 0.42);
   background: var(--accent-soft);
 }
 
@@ -219,7 +219,7 @@ function closeDrawer() {
   border: 1px solid transparent;
 }
 .log-row:hover {
-  background: rgba(245, 242, 235, 0.03);
+  background: rgba(244, 241, 234, 0.04);
   border-color: var(--border-subtle);
 }
 
@@ -249,8 +249,8 @@ function closeDrawer() {
 .log-row.transaction .log-type { color: #c9a3d4; }
 .log-row.runtime     .log-type { color: var(--status-fault); }
 .log-row.error {
-  background: rgba(200, 123, 95, 0.06);
-  border-color: rgba(200, 123, 95, 0.20);
+  background: rgba(214, 139, 110, 0.08);
+  border-color: rgba(214, 139, 110, 0.24);
 }
 .log-row.error .log-type,
 .log-row.error .log-msg { color: var(--status-fault); }

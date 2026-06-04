@@ -158,9 +158,9 @@ function handleAuthorize(connectorId: number) {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-elevated);
-  border-left: 1px solid var(--border-subtle);
-  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-center);
+  border-left: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-strong);
 }
 
 .panel-body {
@@ -266,18 +266,19 @@ function handleAuthorize(connectorId: number) {
   white-space: nowrap;
 }
 
-.status-pill.disconnected { color: var(--status-fault); border-color: rgba(200, 123, 95, 0.35); }
+.status-pill.disconnected { color: var(--status-fault); border-color: rgba(214, 139, 110, 0.35); }
 .status-pill.connecting   { color: var(--status-busy);  border-color: rgba(212, 165, 116, 0.35); }
+
 .status-pill.connected,
 .status-pill.available    { color: var(--status-online); border-color: rgba(184, 196, 160, 0.35); }
 .status-pill.preparing    { color: var(--status-busy);  border-color: rgba(212, 165, 116, 0.35); }
-.status-pill.charging     { color: var(--accent);       border-color: rgba(232, 223, 200, 0.45); }
+.status-pill.charging     { color: var(--accent);       border-color: rgba(232, 223, 200, 0.40); }
 .status-pill.finishing    { color: var(--text-muted);   border-color: var(--border-subtle); }
-.status-pill.faulted      { color: var(--status-fault); border-color: rgba(200, 123, 95, 0.45); background: rgba(200, 123, 95, 0.06); }
+.status-pill.faulted      { color: var(--status-fault); border-color: rgba(214, 139, 110, 0.40); background: rgba(214, 139, 110, 0.08); }
 .status-pill.unavailable  { color: var(--text-muted);   border-color: var(--border-subtle); }
 .status-pill.pending      { color: var(--status-busy);  border-color: rgba(212, 165, 116, 0.35); }
 .status-pill.accepted     { color: var(--status-online); border-color: rgba(184, 196, 160, 0.35); }
-.status-pill.rejected     { color: var(--status-fault); border-color: rgba(200, 123, 95, 0.45); }
+.status-pill.rejected     { color: var(--status-fault); border-color: rgba(214, 139, 110, 0.40); }
 
 .connection-actions {
   display: flex;
@@ -301,8 +302,8 @@ function handleAuthorize(connectorId: number) {
 
 .btn:hover:not(:disabled) {
   color: var(--text-primary);
-  border-color: rgba(245, 242, 235, 0.32);
-  background: rgba(245, 242, 235, 0.03);
+  border-color: rgba(244, 241, 234, 0.22);
+  background: rgba(244, 241, 234, 0.04);
 }
 
 .btn:disabled {
@@ -326,16 +327,16 @@ function handleAuthorize(connectorId: number) {
   color: var(--danger);
 }
 .btn-danger:hover:not(:disabled) {
-  background: rgba(200, 123, 95, 0.08);
+  background: rgba(214, 139, 110, 0.10);
 }
 
 .btn-danger-soft {
-  border-color: rgba(200, 123, 95, 0.40);
+  border-color: rgba(214, 139, 110, 0.40);
   color: var(--status-fault);
 }
 .btn-danger-soft:hover:not(:disabled) {
-  background: rgba(200, 123, 95, 0.06);
-  border-color: rgba(200, 123, 95, 0.6);
+  background: rgba(214, 139, 110, 0.08);
+  border-color: rgba(214, 139, 110, 0.55);
 }
 
 .btn-small {
@@ -361,7 +362,7 @@ function handleAuthorize(connectorId: number) {
   padding: 16px 18px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  background: var(--bg-sunken);
+  background: var(--bg-elevated);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -410,7 +411,7 @@ function handleAuthorize(connectorId: number) {
   font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--text-primary);
-  background: var(--bg-elevated);
+  background: var(--bg-sunken);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   letter-spacing: 0.04em;

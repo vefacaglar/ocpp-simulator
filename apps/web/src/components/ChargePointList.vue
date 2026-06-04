@@ -143,7 +143,7 @@ async function onDelete(id: string, e: Event) {
   transition: background 0.15s, border-color 0.15s;
 }
 .cp-item:hover {
-  background: rgba(245, 242, 235, 0.03);
+  background: rgba(244, 241, 234, 0.04);
   border-color: var(--border-subtle);
 }
 .cp-item.selected {
@@ -193,7 +193,7 @@ async function onDelete(id: string, e: Event) {
 
 .error-bar {
   padding: 10px 24px;
-  background: rgba(200, 123, 95, 0.08);
+  background: rgba(214, 139, 110, 0.10);
   color: var(--status-fault);
   font-family: var(--font-mono);
   font-size: 0.72rem;

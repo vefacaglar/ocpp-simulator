@@ -179,7 +179,7 @@ async function onSubmit() {
 }
 .btn:hover {
   color: var(--text-primary);
-  border-color: rgba(245, 242, 235, 0.32);
+  border-color: rgba(244, 241, 234, 0.22);
 }
 
 .btn-cancel { color: var(--text-muted); }

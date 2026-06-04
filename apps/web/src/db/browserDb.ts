@@ -139,12 +139,18 @@ export async function createConnector(chargePointId: string): Promise<ConnectorR
   if (!chargePoint) throw new Error('charge point not found')
 
   const existing = await listConnectors(chargePointId)
-  const maxConnector = existing.reduce((max, c) => Math.max(max, c.connectorNumber), 0)
+  
+  let nextConnectorNumber = 1
+  const usedNumbers = new Set(existing.map(c => c.connectorNumber))
+  while (usedNumbers.has(nextConnectorNumber)) {
+    nextConnectorNumber++
+  }
+
   const now = new Date().toISOString()
   const recordWithoutId: Omit<ConnectorRecord, 'id'> = {
     chargePointId,
-    connectorNumber: maxConnector + 1,
-    evseId: maxConnector + 1,
+    connectorNumber: nextConnectorNumber,
+    evseId: nextConnectorNumber,
     status: 'Available',
     createdAt: now,
     updatedAt: now,
@@ -158,13 +164,18 @@ export async function createConnector(chargePointId: string): Promise<ConnectorR
   return record
 }
 
-export async function deleteConnectorRecord(chargePointId: string, connectorId: number): Promise<void> {
+export async function deleteConnectorRecord(chargePointId: string, connectorNumber: number): Promise<void> {
+  const existingConnectors = await listConnectors(chargePointId)
+  const connectorToDelete = existingConnectors.find(c => c.connectorNumber === connectorNumber)
+  if (!connectorToDelete) return
+
   const connectorStore = await writableStore('connectors')
-  await request(connectorStore.delete(connectorId))
+  await request(connectorStore.delete(connectorToDelete.id))
+  
   const chargePoint = await getChargePoint(chargePointId)
   if (chargePoint) {
-    const existing = await listConnectors(chargePointId)
-    chargePoint.connectorCount = existing.length
+    const remaining = await listConnectors(chargePointId)
+    chargePoint.connectorCount = remaining.length
     chargePoint.updatedAt = new Date().toISOString()
     await putChargePoint(chargePoint)
   }

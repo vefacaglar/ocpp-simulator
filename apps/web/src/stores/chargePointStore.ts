@@ -183,6 +183,19 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     }
   }
 
+  async function updateChargePoint(id: string, input: { name?: string; ocppVersion?: string }) {
+    error.value = null
+    try {
+      await api.updateChargePoint(id, input)
+      await loadChargePoints()
+      if (selectedId.value === id) {
+        await selectChargePoint(id)
+      }
+    } catch (e: any) {
+      error.value = e.message
+    }
+  }
+
   async function removeChargePoint(id: string) {
     error.value = null
     try {
@@ -1147,6 +1160,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     loadChargePoints,
     selectChargePoint,
     createChargePoint,
+    updateChargePoint,
     removeChargePoint,
     addConnector,
     removeConnector,

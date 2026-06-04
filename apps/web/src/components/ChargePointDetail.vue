@@ -90,9 +90,12 @@ function handleAuthorize(connectorId: number) {
             <div v-for="c in connectors" :key="c.id" class="connector-card">
               <div class="connector-top">
                 <span class="connector-num">Connector {{ c.connectorNumber }}</span>
-                <span class="status-pill" :class="statusClass(connectorStatus(c.connectorNumber))">
-                  {{ connectorStatus(c.connectorNumber) }}
-                </span>
+                <div class="connector-top-actions">
+                  <span class="status-pill" :class="statusClass(connectorStatus(c.connectorNumber))">
+                    {{ connectorStatus(c.connectorNumber) }}
+                  </span>
+                  <button class="btn-delete" title="Delete Connector" @click="store.removeConnector(c.connectorNumber)">&times;</button>
+                </div>
               </div>
 
               <!-- Available: Plug In, Fault, Disable -->
@@ -382,6 +385,26 @@ function handleAuthorize(connectorId: number) {
   color: var(--text-primary);
   font-weight: 600;
   letter-spacing: 0.04em;
+}
+
+.connector-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.btn-delete:hover {
+  color: var(--danger);
 }
 
 .connector-actions {

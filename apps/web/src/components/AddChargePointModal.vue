@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useChargePointStore } from '../stores/chargePointStore'
+
+const props = defineProps<{
+  editId?: string
+}>()
 
 const emit = defineEmits<{ close: [] }>()
 const store = useChargePointStore()
@@ -9,13 +13,31 @@ const id = ref('')
 const name = ref('')
 const ocppVersion = ref('1.6J')
 
+onMounted(() => {
+  if (props.editId) {
+    const cp = store.chargePoints.find(cp => cp.id === props.editId)
+    if (cp) {
+      id.value = cp.id
+      name.value = cp.name
+      ocppVersion.value = cp.ocppVersion
+    }
+  }
+})
+
 async function onSubmit() {
   if (!id.value) return
-  await store.createChargePoint({
-    id: id.value,
-    name: name.value || id.value,
-    ocppVersion: ocppVersion.value,
-  })
+  if (props.editId) {
+    await store.updateChargePoint(props.editId, {
+      name: name.value || id.value,
+      ocppVersion: ocppVersion.value,
+    })
+  } else {
+    await store.createChargePoint({
+      id: id.value,
+      name: name.value || id.value,
+      ocppVersion: ocppVersion.value,
+    })
+  }
   emit('close')
 }
 </script>
@@ -25,15 +47,15 @@ async function onSubmit() {
     <div class="modal">
       <div class="modal-header">
         <div>
-          <div class="eyebrow">— New Instance</div>
-          <h3>Add Charge Point</h3>
+          <div class="eyebrow">— {{ props.editId ? 'Edit Instance' : 'New Instance' }}</div>
+          <h3>{{ props.editId ? 'Edit Charge Point' : 'Add Charge Point' }}</h3>
         </div>
         <button class="modal-close" @click="emit('close')">&times;</button>
       </div>
       <form class="modal-body" @submit.prevent="onSubmit">
         <div class="form-field">
           <label>Charge Point ID</label>
-          <input v-model="id" placeholder="CP-001" required />
+          <input v-model="id" placeholder="CP-001" required :disabled="!!props.editId" />
         </div>
         <div class="form-field">
           <label>Name</label>
@@ -48,7 +70,7 @@ async function onSubmit() {
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-cancel" @click="emit('close')">Cancel</button>
-          <button type="submit" class="btn btn-primary">Create</button>
+          <button type="submit" class="btn btn-primary">{{ props.editId ? 'Save' : 'Create' }}</button>
         </div>
       </form>
     </div>
@@ -143,8 +165,12 @@ async function onSubmit() {
   letter-spacing: 0.02em;
   transition: border-color 0.15s;
 }
+.form-field input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .form-field input::placeholder { color: var(--text-muted); }
-.form-field input:focus,
+.form-field input:focus:not(:disabled),
 .form-field select:focus { border-color: var(--accent); }
 .form-field select option {
   background: var(--bg-elevated);
@@ -193,3 +219,4 @@ async function onSubmit() {
   border-color: #efe7d0;
 }
 </style>
+

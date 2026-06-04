@@ -6,6 +6,7 @@ import AddChargePointModal from './AddChargePointModal.vue'
 
 const store = useChargePointStore()
 const showModal = ref(false)
+const editId = ref<string | undefined>(undefined)
 
 onMounted(() => store.loadChargePoints())
 
@@ -24,13 +25,24 @@ async function onDelete(id: string, e: Event) {
   e.stopPropagation()
   await store.removeChargePoint(id)
 }
+
+function onEdit(id: string, e: Event) {
+  e.stopPropagation()
+  editId.value = id
+  showModal.value = true
+}
+
+function openAddModal() {
+  editId.value = undefined
+  showModal.value = true
+}
 </script>
 
 <template>
   <div class="charge-point-list">
     <div class="panel-header">
       <h2>Charge Points</h2>
-      <button class="btn-add" title="Add Charge Point" @click="showModal = true">+</button>
+      <button class="btn-add" title="Add Charge Point" @click="openAddModal">+</button>
     </div>
     <div v-if="store.chargePoints.length > 0" class="bulk-actions">
       <button class="btn-bulk" :disabled="!hasDisconnected" @click="store.connectAll()">Connect All</button>
@@ -56,13 +68,16 @@ async function onDelete(id: string, e: Event) {
           </div>
           <div class="cp-meta">
             <span>{{ cp.ocppVersion }}</span>
-            <button class="btn-delete" title="Delete" @click="onDelete(cp.id, $event)">&times;</button>
+            <div class="cp-actions">
+              <button class="btn-icon" title="Edit" @click="onEdit(cp.id, $event)">&#9998;</button>
+              <button class="btn-icon btn-delete" title="Delete" @click="onDelete(cp.id, $event)">&times;</button>
+            </div>
           </div>
         </div>
       </div>
     </div>
     <div v-if="store.error" class="error-bar">{{ store.error }}</div>
-    <AddChargePointModal v-if="showModal" @close="showModal = false" />
+    <AddChargePointModal v-if="showModal" :edit-id="editId" @close="showModal = false" />
   </div>
 </template>
 
@@ -218,17 +233,30 @@ async function onDelete(id: string, e: Event) {
   letter-spacing: 0.02em;
 }
 
-.btn-delete {
+.cp-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn-icon {
   background: none;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 0.95rem;
   padding: 0 4px;
   line-height: 1;
   transition: color 0.15s;
 }
-.btn-delete:hover {
+.btn-icon:hover {
+  color: var(--text-primary);
+}
+
+.btn-icon.btn-delete {
+  font-size: 1.1rem;
+}
+.btn-icon.btn-delete:hover {
   color: var(--danger);
 }
 

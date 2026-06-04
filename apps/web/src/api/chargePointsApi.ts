@@ -56,6 +56,23 @@ export async function deleteChargePoint(id: string): Promise<void> {
   await deleteChargePointCascade(id)
 }
 
+export async function updateChargePoint(id: string, input: {
+  name?: string
+  ocppVersion?: string
+}): Promise<ChargePoint> {
+  const existing = await getChargePoint(id)
+  if (!existing) throw new Error('charge point not found')
+
+  const record: ChargePoint = {
+    ...existing,
+    name: input.name ?? existing.name,
+    ocppVersion: input.ocppVersion ?? existing.ocppVersion,
+    updatedAt: new Date().toISOString(),
+  }
+  await putChargePoint(record)
+  return record
+}
+
 export async function addConnector(chargePointId: string): Promise<Connector> {
   return createConnector(chargePointId)
 }

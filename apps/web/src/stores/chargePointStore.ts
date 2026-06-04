@@ -654,13 +654,22 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     sendFrame(cpId, state, frame, 'Heartbeat')
   }
 
-  function sendInitialStatusNotifications(cpId: string) {
-    const detail = selectedDetail.value
-    if (!detail) return
-    for (const c of detail.connectors) {
+  async function sendInitialStatusNotifications(cpId: string) {
+    try {
+      const { connectors } = await api.fetchChargePoint(cpId)
       const state = cpStates.value.get(cpId)
-      if (state) ensureConnectorState(state, c.connectorNumber)
-      sendStatusNotification(cpId, c.connectorNumber, 'Available', 'NoError')
+      if (!state) return
+
+      // Connector 0 is the main Charge Point controller
+      sendStatusNotification(cpId, 0, 'Available', 'NoError')
+
+      for (const c of connectors) {
+        ensureConnectorState(state, c.connectorNumber)
+        sendStatusNotification(cpId, c.connectorNumber, 'Available', 'NoError')
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error(`[cp ${cpId}] failed to send initial status notifications:`, e)
     }
   }
 

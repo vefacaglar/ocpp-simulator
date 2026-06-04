@@ -119,7 +119,7 @@ General rules:
 Example connection shape:
 
 ```text
-ws://localhost:8080/ocpp/{chargePointId}
+ws://localhost:7080/ws/{chargePointId}
 ```
 
 or:

@@ -1,6 +1,6 @@
 # OCPP Simulator Architecture & Development Plan
 
-> Current implementation note: the UI management `simulator-api` service has been removed after the web app moved charge point config, connector config, selected charge point state, and UI live logs into browser IndexedDB. The current runtime stack is `web` → `ocpp-gateway` → MQTT → `message-processor`/`ocpp-core`, with PostgreSQL used by `ocpp-core` only.
+> Current implementation note: the UI management `simulator-api` service and legacy `apps/csms` mock Central System have been removed. The current runtime and test stack is `web`/fake CP → `ocpp-gateway` → MQTT → `message-processor`/`ocpp-core`, with PostgreSQL used by `ocpp-core` only.
 
 ## 1. Project Summary
 
@@ -12,16 +12,12 @@ The first production target is OCPP 1.6J, but the internal architecture must be 
 
 The application runs locally and consists of:
 
-- Go API backend
-- Go simulator runtime
-- per-charge-point OCPP WebSocket session proxy for Central System communication
-- target split into `simulator-api`, `ocpp-gateway`, `message-processor`, and `ocpp-core`
+- per-charge-point OCPP WebSocket sessions through `ocpp-gateway`
+- service split into `ocpp-gateway`, `message-processor`, and `ocpp-core`
 - MQTT message bus for local service-to-service OCPP frame routing
 - Docker Compose local orchestration
-- Go WebSocket server for live UI updates
-- Go mock OCPP Central System (a standalone test server, not connected to any real backend)
 - Vue web client
-- SQLite local database
+- PostgreSQL database owned by `ocpp-core`
 - Turborepo monorepo structure
 
 The intended final form is a developer tool that can be started locally, opened in the browser, and used to create, connect, control, and inspect simulated OCPP charge points.
@@ -31,10 +27,6 @@ This is an OCPP simulator first. The web UI is the control surface for simulated
 The target architecture is event-driven and service-split. `nextplan.md` is the current migration source for this split.
 
 ```txt
-Web UI
-  -> simulator-api
-  -> simulator config DB
-
 Vue per-CP simulator
   -> WebSocket
   -> ocpp-gateway
@@ -49,8 +41,6 @@ MQTT ocpp/{chargePointId}/in and /out
   -> ocpp-core
   -> DB
 ```
-
-`simulator-api` owns UI-facing simulator management such as charge point and connector create/delete/list. It is independent from OCPP message processing and must not generate OCPP wire frames.
 
 `ocpp-gateway` is a dumb WebSocket edge and MQTT bridge. It owns connection lifecycle only; it does not own connector state machines, meter generators, transactions, persistence, or business decisions.
 
@@ -97,8 +87,6 @@ Concretely:
 - **The WebSocket subprotocol is the standard one** (`ocpp1.6`, `ocpp2.0.1`).
 - **Internal models never leak to the wire.** The generic internal domain model (the transaction GUID, `numericId`, dual identity, `ConnectorStateMachine` names, runtime events, etc.) exists only inside the simulator. The version `codec` is the single boundary that translates internal state into spec-exact wire payloads and back. If a value isn't defined by the OCPP spec, it must not appear in an OCPP message.
 - **Validation against the official JSON schemas.** Where the spec publishes JSON schemas, outgoing and incoming payloads should be validatable against them. Anything that fails schema validation is a bug, not an acceptable simplification.
-- **Applies to the mock Central System too.** `apps/csms` (section 10b) must also emit only spec-exact responses, even though it is a test server. It may choose *which* valid response to send, but every response must itself be valid OCPP.
-
 Where this plan shows a simplified or partial payload for brevity, the implementation must still produce the full spec-compliant message. The plan's illustrative snippets are never an excuse to deviate from the standard.
 
 ---
@@ -185,13 +173,10 @@ Recommended structure:
 ```txt
 ocpp-simulator/
 ├─ apps/
-│  ├─ api/              # Current Go API + simulator runtime
-│  ├─ simulator-api/    # Target: UI management API, no OCPP wire messages
 │  ├─ ocpp-gateway/     # Target: dumb WebSocket edge and MQTT bridge
 │  ├─ message-processor/ # Target: response producer + stdout audit
 │  ├─ ocpp-core/        # Target: canonical logs + transactions/business
 │  ├─ web/              # Vue client + per-CP local OCPP simulation
-│  └─ csms/             # Optional legacy/mock Central System
 │
 ├─ packages/
 │  ├─ ocpp-protocol/    # Target: public OCPP codec/message/protocol package
@@ -202,7 +187,7 @@ ocpp-simulator/
 ├─ docs/
 ├─ docker/
 ├─ docker-compose.yml   # Target: local MQTT + web + backend services
-├─ go.work              # Go workspace linking apps/api, apps/csms, packages/ocpp-schemas
+├─ go.work              # Go workspace linking backend modules and OCPP packages
 ├─ turbo.json
 ├─ package.json
 ├─ pnpm-workspace.yaml
@@ -229,16 +214,6 @@ Preferred direction:
 - Avoid over-frameworking the project.
 
 ### 5.4 Target Service Responsibilities
-
-`simulator-api`:
-
-- Serves the UI management API.
-- Owns simulator configuration for charge points and connectors.
-- Supports create, list, update, delete for simulated units and connector definitions.
-- May expose read models needed by the dashboard.
-- Does not parse, produce, wrap, or route OCPP wire frames.
-- Does not own OCPP transaction, authorization, or connector business decisions.
-- Does not call other backend services with OCPP payloads.
 
 `ocpp-gateway`:
 
@@ -298,12 +273,10 @@ MQTT payload convention: payloads are raw OCPP-J JSON array frames only. Metadat
 Docker Compose target:
 
 - `mqtt`: local MQTT broker, Mosquitto is enough for the first phase.
-- `simulator-api`: UI management API and simulator config DB.
 - `ocpp-gateway`: WebSocket edge, depends on `mqtt`.
 - `message-processor`: MQTT consumer/router, depends on `mqtt`.
 - `ocpp-core`: DB/business service, depends on `mqtt`.
-- `web`: Vue UI, talks to `simulator-api` and realtime/read APIs.
-- Optional `csms`: legacy/mock Central System profile, not required for the target MQTT-centered main flow.
+- `web`: Vue UI with browser-local CP config/logs.
 
 Each backend service should have its own Dockerfile or build target. Compose is for local development and repeatable demos; it should not change the OCPP wire contract.
 
@@ -739,7 +712,7 @@ func Validate(version Version, action string, dir Direction, payload []byte) err
 
 #### 8.5.2 How Validation Is Wired
 
-- `apps/api` and `apps/csms` both depend on `packages/ocpp-schemas` through the `go.work` workspace.
+- `message-processor`, `ocpp-core`, and `packages/ocpp-protocol` depend on `packages/ocpp-schemas` through their module `replace` directives and the `go.work` workspace.
 - **Tests**: every built/decoded message is validated against the official schema (see Phase 4 tests). This is the primary guarantee.
 - **Runtime (optional, dev-mode)**: a build/config flag can enable outbound payload validation before send and inbound validation after receive; on failure it publishes a `runtime.error` and refuses to send. Off by default in normal runs to avoid overhead, but available to catch regressions.
 - The `codec` is the only place that produces wire bytes, so it is the only place that needs validating.
@@ -812,7 +785,7 @@ Support configurable URL behavior.
 Common OCPP 1.6J format:
 
 ```txt
-ws://localhost:8080/ocpp/CP-001
+wss://csms.example.com/ocpp/CP-001
 ```
 
 The UI should allow the user to define:
@@ -824,9 +797,9 @@ The UI should allow the user to define:
 Example:
 
 ```txt
-Base URL: ws://localhost:8080/ocpp
+Base URL: wss://csms.example.com/ocpp
 Charge Point ID: CP-001
-Final URL: ws://localhost:8080/ocpp/CP-001
+Final URL: wss://csms.example.com/ocpp/CP-001
 ```
 
 ### 10.2 Connection Lifecycle
@@ -871,83 +844,11 @@ On timeout:
 
 ---
 
-## 10b. Mock OCPP Central System (Test Server)
+## 10b. Removed Mock OCPP Central System
 
-The simulator needs something to connect to. To avoid depending on a real EV charging backend during development, the project ships a small standalone Go server that acts as a mock OCPP Central System.
+The legacy `apps/csms` standalone mock Central System was removed after the v4.3 split made `message-processor` and `ocpp-core` the real local test loop. CP-to-server responses are produced by `message-processor`; transaction/business decisions and CSMS-initiated CALL publishing are owned by `ocpp-core`.
 
-It is **not** an EVCMS. It has no database, no business logic, and no UI. Its only job is to accept OCPP WebSocket connections, parse incoming CALL messages, and reply with a protocol-valid CALLRESULT based on the message action.
-
-### 10b.1 Goals
-
-- Let a developer run the simulator end-to-end with zero external setup.
-- Accept many charge point connections simultaneously.
-- Respond to every MVP OCPP 1.6J action with a well-formed, accepting response.
-- Stay tiny and dependency-light.
-
-Explicit non-goals: persistence, authentication logic, tariffs, remote commands, realistic rejection scenarios. (Configurable rejection/fault responses are a future enhancement, see below.)
-
-### 10b.2 Placement & Independence
-
-- Lives in `apps/csms` as its own Go module / binary.
-- Has no dependency on `apps/api`, the simulator runtime, or SQLite.
-- Communicates only over the OCPP WebSocket wire protocol, exactly like a real Central System would.
-
-### 10b.3 Connection
-
-- Listens on a configurable address, default `ws://localhost:8080/ocpp`.
-- Accepts connections at `ws://localhost:8080/ocpp/{chargePointId}`.
-- Uses the `ocpp1.6` WebSocket subprotocol where offered.
-- Logs each connect/disconnect and every message to stdout (human-readable), so it can double as a debugging surface.
-
-### 10b.4 Message Handling
-
-The server parses the OCPP JSON array frame `[MessageTypeId, UniqueId, Action, Payload]` and dispatches by action:
-
-```txt
-[2, UniqueId, Action, Payload]   CALL      -> handle, reply [3, UniqueId, ResultPayload]
-[3, UniqueId, Payload]           CALLRESULT-> (inbound result, just log)
-[4, UniqueId, Code, Desc, Det]   CALLERROR -> log
-```
-
-Default responses for MVP 1.6J actions (all "happy path"):
-
-```txt
-BootNotification    -> { "status": "Accepted", "currentTime": <now>, "interval": 300 }
-Heartbeat           -> { "currentTime": <now> }
-StatusNotification  -> {}
-Authorize           -> { "idTagInfo": { "status": "Accepted" } }
-StartTransaction    -> { "transactionId": <server-assigned int>, "idTagInfo": { "status": "Accepted" } }
-MeterValues         -> {}
-StopTransaction     -> { "idTagInfo": { "status": "Accepted" } }
-```
-
-The server assigns `transactionId` from a simple in-memory incrementing counter. This is what closes the loop with the simulator's asynchronous transaction-ID flow (section 7.6).
-
-Unknown / unsupported actions reply with a CALLERROR (`NotImplemented` / `NotSupported`) rather than crashing.
-
-Every response the mock emits must be valid OCPP (section 2b). The mock depends on `packages/ocpp-schemas` and its tests validate each response against the official `...Response.json` schema (section 8.5).
-
-For v4.3 CSMS-initiated testing, `ocpp-core` exposes internal endpoints such as `POST /internal/remote-start`. These endpoints represent an external actor asking the core service to send an OCPP CALL. The actual `RemoteStartTransaction`, `RemoteStopTransaction`, `Reset`, or similar command must be published by `ocpp-core` as a raw CALL to `ocpp/{chargePointId}/out`, then forwarded by `ocpp-gateway` over the target charge point's existing OCPP WebSocket.
-
-### 10b.5 Minimal Structure
-
-```txt
-apps/csms/
-├─ cmd/
-│  └─ server/
-│     └─ main.go
-├─ internal/
-│  ├─ wsserver/      # WebSocket accept loop, per-connection read/write
-│  └─ handlers/      # action -> response mapping
-├─ go.mod
-└─ go.sum
-```
-
-### 10b.6 Future Enhancements (non-MVP)
-
-- Configurable responses (force `Rejected`, `Blocked`, delayed, or CALLERROR per action) to test the simulator's error handling.
-- Sending inbound Central System commands (RemoteStartTransaction, Reset, TriggerMessage) to exercise the simulator's future inbound handling.
-- A `--scenario` flag to script response sequences.
+For CSMS-initiated testing, `ocpp-core` exposes internal endpoints such as `POST /internal/csms/remote-start`. These endpoints represent an external actor asking the core service to send an OCPP CALL. The actual `RemoteStartTransaction`, `RemoteStopTransaction`, `Reset`, or similar command must be published by `ocpp-core` as a raw CALL to `ocpp/{chargePointId}/out`, then forwarded by `ocpp-gateway` over the target charge point's existing OCPP WebSocket.
 
 ---
 
@@ -1533,8 +1434,7 @@ Deliverables:
 - pnpm workspace
 - apps/api Go service
 - apps/web Vue app
-- apps/csms Go mock Central System skeleton (accepts a WebSocket connection, logs frames)
-- `go.work` workspace linking apps/api, apps/csms, packages/ocpp-schemas
+- `go.work` workspace linking backend modules and OCPP packages
 - packages/ocpp-schemas module scaffold (empty validator + README placeholder; schema files land in Phase 4)
 - root dev scripts
 - basic README
@@ -1546,7 +1446,6 @@ Acceptance criteria:
 - `pnpm dev` starts web and api
 - API exposes health endpoint
 - Web app loads dashboard shell
-- `pnpm dev:csms` starts the mock Central System and accepts a raw WebSocket connection
 - `go build ./...` works across the workspace
 
 ### Phase 1: SQLite and Basic CRUD
@@ -1670,15 +1569,15 @@ Deliverables:
 - Timeout handling
 - Message persistence
 - Realtime event publishing
-- Mock CSMS handlers + tests asserting every response validates against the official `...Response.json` schema (section 8.5)
-
-Note: the mock Central System (`apps/csms`, section 10b) should now return real happy-path responses, so the simulator can be tested end-to-end without any external backend.
+- `message-processor` handlers + tests asserting every response validates against the official `...Response.json` schema.
+- `ocpp-core` CSMS-initiated CALL tests asserting requests validate against official schemas before publish.
 
 Acceptance criteria:
 
-- `cd apps/csms && go test ./...` passes; every mock response validates against its official OCPP response schema
-- Charge point connects to the mock Central System URL
-- BootNotification is sent after command and the mock replies `Accepted`
+- `cd apps/message-processor && go test ./...` passes; every processor response validates against its official OCPP response schema
+- `cd apps/ocpp-core && go test ./...` passes; CSMS-initiated CALLs are schema-valid raw OCPP frames
+- Charge point connects to `ocpp-gateway`
+- BootNotification is sent and `message-processor` replies `Accepted`
 - Response is received and shown in UI
 - Disconnect closes connection cleanly
 
@@ -1834,7 +1733,6 @@ Root `package.json` example:
     "dev": "turbo dev",
     "dev:api": "cd apps/api && go run ./cmd/server",
     "dev:web": "pnpm --filter web dev",
-    "dev:csms": "cd apps/csms && go run ./cmd/server",
     "build": "turbo build",
     "lint": "turbo lint",
     "test": "turbo test"

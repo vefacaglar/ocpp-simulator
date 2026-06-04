@@ -8,9 +8,6 @@
 #   ocpp-gateway     dumb WebSocket↔MQTT bridge
 #   web              Vue UI (browser-local config, nginx serving Vite build)
 #
-# Optional profile (started with `docker compose --profile csms up`):
-#   csms             mock OCPP Central System (standalone test server)
-#
 # Boundary invariants enforced here:
 #   - ocpp-gateway, message-processor, ocpp-core depend on mqtt.
 #   - web only reverse-proxies OCPP WebSocket traffic to ocpp-gateway.
@@ -120,20 +117,5 @@ services:
     ports:
       - "5173:80"
     restart: unless-stopped
-
-  # Optional: legacy mock CSMS for end-to-end testing without the
-  # full v4.3 stack. Started explicitly:
-  #   docker compose --profile csms up csms
-  csms:
-    profiles: ["csms"]
-    build:
-      context: .
-      dockerfile: apps/csms/Dockerfile
-    image: ocpp-csms:local
-    container_name: ocpp-csms
-    ports:
-      - "8080:8080"
-    restart: unless-stopped
-
 volumes:
   postgres-data:

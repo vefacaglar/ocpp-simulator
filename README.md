@@ -24,7 +24,6 @@ Vue per-CP simulator --[WS /ws/{cpId}]--> ocpp-gateway
 | `message-processor` | CP→server response producer; asks `ocpp-core` for business decisions | no (stdout audit only) | yes |
 | `ocpp-core` | Canonical log source; StartTransaction counter; CSMS-init CALL publisher | yes (`ocpp-core.db`) | yes |
 | `web` | Vue 3 UI; browser-local CP config/logs; one WebSocket per simulated CP | IndexedDB | no |
-| `csms` (optional) | Legacy mock Central System for end-to-end testing | no | no |
 
 The hard rules of the OCPP wire are enforced throughout:
 - WebSocket subprotocol is `ocpp1.6` or `ocpp2.0.1` (per negotiated version).
@@ -51,7 +50,6 @@ docker compose up -d --build
 # Core:     http://localhost:7090
 # Processor health: http://localhost:7091
 # MQTT:     tcp://localhost:1883
-docker compose --profile csms up csms -d  # optional mock CSMS on :8080
 ```
 
 End-to-end verification with a fake CP (writes to `docs/wire-dumps/t29-end-to-end-ocpp-frames.log`):
@@ -79,8 +77,7 @@ make dev-backend:ocpp-gateway      # single Go service via go run,
 make dev-backend:ocpp-core         # bypasses compose. Each target
 make dev-backend:message-processor  # uses the env vars that match the
                                     # compose topology.
-make dev-backend:csms
-make test               # 6 Go module tests with GOWORK=off
+make test               # 5 Go module tests with GOWORK=off
 make wire-dump          # run a fake CP, capture raw OCPP frames
 ```
 
@@ -94,7 +91,6 @@ Every Go module is self-contained: `go.mod` has the `require`/`replace` directiv
 cd apps/ocpp-gateway    && go test ./...
 cd apps/message-processor && go test ./...
 cd apps/ocpp-core       && go test ./...
-cd apps/csms            && go test ./...
 cd packages/ocpp-protocol && go test ./...
 cd packages/ocpp-schemas  && go test ./...
 ```
@@ -107,7 +103,6 @@ apps/
   message-processor/ # CP→server response producer; no DB; stdout audit
   ocpp-core/        # Canonical log + transactions + business + CSMS-init CALL
   web/              # Vue 3 dashboard + browser-local per-CP OCPP simulation
-  csms/             # Optional legacy/mock Central System
 packages/
   ocpp-protocol/    # Public OCPP codec/message/protocol package
   ocpp-schemas/     # Official OCPP JSON schemas + validator

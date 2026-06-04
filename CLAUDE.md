@@ -13,5 +13,5 @@ This project's guidance for Claude Code is maintained in a single shared agent g
 - `ocpp-core` owns StartTransaction transaction UUID/numeric ID creation and initializes its numeric counter from DB `MAX(numeric_id)` on startup.
 - Local target should use Docker Compose for MQTT plus web and the four backend services.
 - The authoritative architecture/development plan is [`plan.md`](plan.md). Consult it before non-trivial changes.
-- Run Go tests per module directory; do not assume a single root `go test ./...` works. Target modules are `apps/ocpp-gateway`, `apps/message-processor`, `apps/ocpp-core`, `apps/csms`, `packages/ocpp-protocol`, and `packages/ocpp-schemas`.
-- Work is tracked via the task list; respect `blockedBy` dependencies. The CSMS/schema track can progress in parallel with the simulator track.
+- Run Go tests per module directory; do not assume a single root `go test ./...` works. Target modules are `apps/ocpp-gateway`, `apps/message-processor`, `apps/ocpp-core`, `packages/ocpp-protocol`, and `packages/ocpp-schemas`.
+- Work is tracked via the task list; respect `blockedBy` dependencies. The active OCPP test loop uses `ocpp-gateway`, `message-processor`, and `ocpp-core`.

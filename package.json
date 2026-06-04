@@ -7,7 +7,6 @@
     "dev:ocpp-gateway": "cd apps/ocpp-gateway && go run ./cmd/gateway",
     "dev:ocpp-core": "cd apps/ocpp-core && go run ./cmd/core",
     "dev:message-processor": "cd apps/message-processor && go run ./cmd/processor",
-    "dev:csms": "cd apps/csms && go run ./cmd/server",
     "dev": "make dev",
     "down": "docker compose down",
     "down:v": "docker compose down -v",

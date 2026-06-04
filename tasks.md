@@ -7,14 +7,12 @@ Persistent task list so any model/contributor can see where things stand. The au
 - Status legend: `[ ]` todo · `[~]` in progress · `[x]` done.
 - When you start a task, set it to `[~]`; when fully done (tests green, no partial work), set `[x]` and note anything notable.
 - **Respect `blocked by`** — don't start a task until its blockers are done.
-- Two parallel tracks run side by side (see below). With one worker, follow IDs in order; with two, the **CSMS/Schema track** can advance independently and only needs to meet the simulator track at T17 (end-to-end).
 - Keep this file in sync with reality. It is the handoff point between sessions/models.
 
 ## Tracks
 
-- **🔧 Simulator track** — the main app: bootstrap → SQLite/CRUD → runtime → realtime → OCPP client → transactions → UX.
-- **🛰️ CSMS/Schema track** — mock Central System + official OCPP schemas. Unblocks end-to-end testability; runs in parallel. Tasks: T4, T5, T12, T15.
-- The tracks converge at **T17** (end-to-end connect + BootNotification): the OCPP client (T16) is first verified against the running mock CSMS (T15).
+- **🔧 Simulator track** — the main app: browser-local CP simulation → `ocpp-gateway` → MQTT → `message-processor`/`ocpp-core`.
+- **🛰️ Schema/protocol track** — official OCPP schemas + protocol package validation. Mock CSMS has been removed; end-to-end verification now uses `ocpp-core` and `message-processor`.
 
 ## Status overview
 
@@ -25,7 +23,7 @@ Next available: **All tasks complete**.
 ## Phase 0 — Repository Bootstrap
 
 - [x] **T1 — Bootstrap monorepo** 🔧🛰️
-  Turborepo + pnpm workspaces + `go.work` (apps/api, apps/csms, packages/ocpp-schemas). Root dev scripts (`dev`, `dev:api`, `dev:web`, `dev:csms`), basic README, docker ignore files.
+  Turborepo + pnpm workspaces + `go.work`, root dev scripts, basic README, docker ignore files.
   _Acceptance:_ `pnpm install` works; `go build ./...` works across the workspace.
   _Blocked by:_ —
 
@@ -37,9 +35,10 @@ Next available: **All tasks complete**.
   Vue 3 + Vite + TS + Pinia + Vue Router. Three-panel control-room layout placeholder (§14.2). Loads via `pnpm dev:web`.
   _Blocked by:_ T1
 
-- [x] **T4 — apps/csms skeleton** 🛰️
-  Mock CSMS skeleton (§10b): WebSocket accept at `ws://localhost:8080/ocpp/{cpId}`, `ocpp1.6` subprotocol, human-readable stdout frame logging. No handlers yet.
+- [x] **T4 — legacy mock CSMS skeleton** 🛰️
+  Historical milestone for the old standalone mock Central System.
   _Blocked by:_ T1
+  _Superseded:_ `apps/csms` was removed in T31; the active test loop uses `ocpp-core`/`message-processor`.
 
 - [x] **T5 — packages/ocpp-schemas scaffold** 🛰️
   Go module scaffold (§8.5): empty `validator.go` (`Validate(version, action, direction, payload)` signature), README placeholder for provenance, `go.mod`, wired into `go.work`. Schema files land in T12.
@@ -93,6 +92,7 @@ Next available: **All tasks complete**.
 - [x] **T15 — CSMS happy-path handlers** 🛰️
   Mock CSMS action→response handlers for all 7 actions (§10b.4), in-memory incrementing `transactionId` counter (closes async loop §7.6), CALLERROR for unknown actions. Responses spec-exact and validated against `...Response.json` in tests (§8.5).
   _Blocked by:_ T4, T12
+  _Superseded:_ `message-processor` now owns CP→server responses; `ocpp-core` owns business decisions and CSMS-initiated CALL production.
 
 ## Phase 5 — OCPP WebSocket Client
 
@@ -101,8 +101,9 @@ Next available: **All tasks complete**.
   _Blocked by:_ T13, T9
 
 - [x] **T17 — End-to-end connect + BootNotification** 🔧🛰️ (tracks converge)
-  Wire runtime → OCPP client → mock CSMS. CP connects to CSMS URL, BootNotification sent on command, CSMS replies Accepted, response shown live, clean disconnect.
+  Historical milestone for the old direct mock Central System loop.
   _Blocked by:_ T16, T15
+  _Superseded:_ v4.3 verification now goes through `web`/fake CP → `ocpp-gateway` → MQTT → `message-processor`/`ocpp-core`.
 
 ## Phase 6 — Transaction Simulation
 
@@ -189,7 +190,11 @@ Next available: **All tasks complete**.
 
 - [x] **T30 — Remove simulator-api after browser-only config** 🔧
   `apps/web` artık charge point/connector config, seçili CP ve UI OCPP loglarını browser IndexedDB’de tuttuğu için `simulator-api` projeden kaldırıldı. `apps/simulator-api` modülü, `go.work`, Docker Compose servisi, web nginx `/api` reverse proxy, Makefile/package scripts, PostgreSQL `simulator_api` init DB’leri ve aktif README/AGENTS/CLAUDE referansları temizlendi.
-  _Acceptance:_ web build yeşil; Go module test döngüsü artık 6 modül (`apps/csms`, `apps/ocpp-gateway`, `apps/ocpp-core`, `apps/message-processor`, `packages/ocpp-protocol`, `packages/ocpp-schemas`) üzerinden çalışır; OCPP wire path değişmez (`web` → `/ws/{cpId}` → `ocpp-gateway` → MQTT).
+  _Acceptance:_ web build yeşil; Go module test döngüsü artık 5 modül (`apps/ocpp-gateway`, `apps/ocpp-core`, `apps/message-processor`, `packages/ocpp-protocol`, `packages/ocpp-schemas`) üzerinden çalışır; OCPP wire path değişmez (`web` → `/ws/{cpId}` → `ocpp-gateway` → MQTT).
+
+- [x] **T31 — Remove legacy mock CSMS** 🔧🛰️
+  Legacy standalone mock Central System gereksiz test fixture olduğu için kaldırıldı. `go.work`, `Makefile`, `package.json`, Docker Compose, README, AGENTS, CLAUDE ve plan/task referansları aktif test döngüsünü `ocpp-core`/`message-processor` üzerine alacak şekilde güncellendi.
+  _Acceptance:_ `make test` 5 Go modülüyle yeşil; legacy mock Central System kodu, dev script'i, compose profili ve aktif docs komutları projede kalmaz.
 
 ---
 
@@ -201,11 +206,9 @@ T1 ─┬─ T2 ── T6 ── T7 ─┬─ T9 ── T10 ── T11 ─┐
     │                  └─ (T7) ──────────────┼─ T8 (needs T3)
     ├─ T3 ─────────────────────────────────┘
     │
-    ├─ T4 ─────────────┐
-    └─ T5 ── T12 ─┬────┴─ T15 ─┐
-                  ├─ T13 ── T14 │
-                  └─ T13 ── T16 ┴─ T17 ── T18 ─┬─ T19 (needs T11) ── T20
+    └─ T5 ── T12 ─┬─ T13 ── T14
+                  └─ T13 ── T16 ── T17 ── T18 ─┬─ T19 (needs T11) ── T20
                        (T16 needs T9)          └─ T21
 ```
 
-Convergence point: **T17** (T16 simulator client × T15 mock CSMS).
+Current convergence point: v4.3 verification through `ocpp-gateway`, `message-processor`, and `ocpp-core`.

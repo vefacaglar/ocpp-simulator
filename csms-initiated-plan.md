@@ -1,5 +1,7 @@
 # CSMS-Initiated Messages + REST API — Implementation Plan
 
+> Superseded note: the standalone mock Central System described in this historical plan was removed. The accepted implementation is `ocpp-core` internal API → MQTT `ocpp/{chargePointId}/out` → `ocpp-gateway` → target charge point WebSocket.
+
 ## Context
 
 The simulator currently only supports **CP-initiated** messages (BootNotification, Heartbeat, StatusNotification, Authorize, StartTransaction, MeterValues, StopTransaction). The CSMS-initiated direction — where the Central System sends a CALL and the Charge Point responds — is entirely unimplemented at every layer: schemas, protocol interface, OCPP client, runtime, and API.
@@ -229,9 +231,9 @@ Add `SetInboundHandler(handler *InboundCallHandler)` to `OcppWebSocketClient`.
 
 Wire the handler in `Runtime.Connect()` when creating the client.
 
-### Step 7: Mock CSMS — REST Endpoints + CALL Sender (apps/csms/)
+### Step 7: ocpp-core — Internal Endpoints + CALL Publisher
 
-Add REST endpoints to the mock CSMS that send CSMS-initiated CALLs:
+Add internal endpoints to `ocpp-core` that send CSMS-initiated CALLs:
 
 ```
 POST /api/chargepoints/{id}/remote-start     → RemoteStartTransaction CALL
@@ -255,13 +257,11 @@ POST /api/chargepoints/{id}/availability      → ChangeAvailability CALL
 7. Maps OCPP status → HTTP status code
 8. Returns HTTP response
 
-Implementation: `PendingCallRegistry` pattern (similar to `apps/api/internal/ocpp/pending.go`) in the CSMS module. Use channels or `sync.WaitGroup`-like mechanism keyed by `uniqueId`.
+Implementation: produce a schema-valid raw OCPP CALL in `ocpp-core` and publish it to `ocpp/{chargePointId}/out`. The gateway forwards it to the existing charge point WebSocket.
 
-**New files in apps/csms:**
-- `cmd/server/main.go` — extend with REST endpoints
-- `internal/csms/pending.go` — pending call registry for CSMS→CP CALLs
-- `internal/csms/api.go` — REST handlers
-- `internal/csms/connections.go` — connection registry (track connected CPs)
+**Files in ocpp-core:**
+- `internal/csms/service.go` — CSMS→CP CALL producer
+- `internal/api/server.go` — internal endpoint registration
 
 ### Step 8: Tests
 
@@ -279,11 +279,9 @@ Implementation: `PendingCallRegistry` pattern (similar to `apps/api/internal/ocp
 - Test unknown action returns CALLERROR NotImplemented
 - Test validation errors return appropriate errors
 
-**apps/csms/cmd/server/handlers_test.go:**
-- Test each REST endpoint returns correct HTTP status
-- Test offline CP returns 409
-- Test timeout returns 504
-- Test CALLERROR returns 502
+**apps/ocpp-core/internal/api/server_test.go:**
+- Test each internal endpoint publishes the expected raw OCPP CALL
+- Test invalid payloads are rejected before publish
 
 ---
 
@@ -309,9 +307,7 @@ Implementation: `PendingCallRegistry` pattern (similar to `apps/api/internal/ocp
 | `packages/ocpp-schemas/v16/ChangeAvailability.json` | Schema |
 | `packages/ocpp-schemas/v16/ChangeAvailabilityResponse.json` | Schema |
 | `apps/api/internal/simulator/inbound_handler.go` | Inbound CALL dispatch |
-| `apps/csms/internal/csms/pending.go` | CSMS pending call registry |
-| `apps/csms/internal/csms/api.go` | CSMS REST handlers |
-| `apps/csms/internal/csms/connections.go` | CSMS connection registry |
+| `apps/ocpp-core/internal/csms/service.go` | CSMS-initiated CALL producer |
 
 ### Modified files
 | File | Changes |
@@ -320,10 +316,9 @@ Implementation: `PendingCallRegistry` pattern (similar to `apps/api/internal/ocp
 | `apps/api/internal/ocpp/v16/protocol.go` | Implement all 16 new methods |
 | `apps/api/internal/simulator/ocpp_client.go` | Add `case ocpp.CALL` in readLoop, add inbound handler |
 | `apps/api/internal/simulator/runtime.go` | Add 8 Handle* methods, wire inbound handler |
-| `apps/csms/cmd/server/main.go` | Add REST endpoints, connection tracking |
 | `packages/ocpp-schemas/validator_test.go` | Add tests for 8 new schemas |
 | `apps/api/internal/ocpp/v16/protocol_test.go` | Add tests for new methods |
-| `apps/csms/cmd/server/handlers_test.go` | Add tests for REST endpoints |
+| `apps/ocpp-core/internal/api/server_test.go` | Add tests for internal CSMS endpoints |
 
 ---
 

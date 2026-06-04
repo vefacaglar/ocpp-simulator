@@ -13,7 +13,6 @@ The authoritative design lives in [`plan.md`](plan.md). Read it before non-trivi
 - **Never wrap OCPP wire messages.** Communication between a simulated unit and the CSMS must be raw OCPP-J JSON array frames only. Do not convert them into wrapper objects such as `{ "type": "CALL", "action": "...", "payload": ... }`, DTO envelopes, command models, or localized/internal shapes on the wire.
 - WebSocket subprotocol is the standard one (`ocpp1.6`, `ocpp2.0.1`).
 - **Internal models never leak to the wire.** The generic domain model (transaction GUID + `numericId` dual identity, `ConnectorStateMachine`, runtime events) is internal only. The version `codec` is the single boundary that translates internal state ↔ spec-exact wire payloads.
-- The mock CSMS (`apps/csms`) is also bound by this: it may choose *which* valid response to send, but every response must be valid OCPP.
 - Official schemas are the single source of truth in `packages/ocpp-schemas`; code conforms to them, never the other way around. Payloads are validated against them in tests.
 
 If a value isn't defined by the OCPP spec, it must not appear in an OCPP message.
@@ -52,13 +51,12 @@ apps/
   message-processor/ # Target: CP-to-server response producer + stdout audit
   ocpp-core/        # Target: canonical OCPP logs + transactions/business
   web/              # Vue 3 + Vite + TS + Pinia + browser IndexedDB
-  csms/             # Mock OCPP Central System (standalone test server, no DB)
 packages/
   ocpp-protocol/    # Go module: public OCPP codec/message/protocol package
   ocpp-schemas/     # Go module: official OCPP JSON schemas (single source of truth) + embed + Validate()
   shared/           # Shared TS types / generated client
   config/           # Shared frontend config
-go.work             # Links apps/csms, apps/ocpp-gateway, apps/ocpp-core, apps/message-processor, packages/ocpp-protocol, packages/ocpp-schemas
+go.work             # Links apps/ocpp-gateway, apps/ocpp-core, apps/message-processor, packages/ocpp-protocol, packages/ocpp-schemas
 plan.md             # Full architecture & development plan (authoritative)
 ```
 
@@ -68,16 +66,14 @@ plan.md             # Full architecture & development plan (authoritative)
 pnpm install                              # install JS deps
 pnpm dev                                  # make dev: OCPP stack + web
 pnpm dev:web                              # Vue only
-pnpm dev:csms                             # mock Central System
 cd apps/ocpp-gateway && go test ./...       # target
 cd apps/message-processor && go test ./...  # target
 cd apps/ocpp-core && go test ./...          # target
-cd apps/csms && go test ./...
 cd packages/ocpp-protocol && go test ./...  # target
 cd packages/ocpp-schemas && go test ./...
 ```
 
-Default target ports/URLs: OCPP gateway session `ws://localhost:7080/ws/{chargePointId}`; mock CSMS `ws://localhost:8080/ocpp/{chargePointId}`.
+Default target URL: OCPP gateway session `ws://localhost:7080/ws/{chargePointId}`.
 
 ## Conventions
 
@@ -91,13 +87,11 @@ Default target ports/URLs: OCPP gateway session `ws://localhost:7080/ws/{chargeP
 
 - Tests are the primary enforcement of the strict-compliance rule. Build → encode → validate against the official schema for every action; cover CALL/CALLRESULT/CALLERROR framing, decode, round-trip, correlation, and golden fixtures (`plan.md` Phase 4).
 - A deliberately non-spec payload must be **rejected** by the validator in tests.
-- The mock CSMS's responses are validated against `...Response.json` schemas in its tests.
+- `message-processor` responses and `ocpp-core` CSMS-initiated CALLs are validated against official schemas in tests.
 
 ## Working with tasks
 
-Work is tracked in [`tasks.md`](tasks.md) — the persistent handoff point between sessions/models. Read it first to see where things stand, update statuses as you go (`[ ]`→`[~]`→`[x]`), and keep it in sync with reality. Two parallel tracks:
-- **Simulator track**: bootstrap → PostgreSQL/CRUD → runtime → realtime → OCPP client → transactions → UX.
-- **CSMS/schema track**: csms skeleton → official schemas + validator → csms handlers → response schema tests. This track unblocks end-to-end testability and can advance in parallel.
+Work is tracked in [`tasks.md`](tasks.md) — the persistent handoff point between sessions/models. Read it first to see where things stand, update statuses as you go (`[ ]`→`[~]`→`[x]`), and keep it in sync with reality. The current testable OCPP path is `web`/fake CP → `ocpp-gateway` → MQTT → `message-processor`/`ocpp-core`.
 
 Respect task `blockedBy` dependencies; prefer lowest available ID. Do not mark a task complete with failing tests or partial implementation.
 

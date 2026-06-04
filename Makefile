@@ -1,4 +1,4 @@
-.PHONY: dev csms simulator dev-stack dev-web down down-v kill-ports test wire-dump help
+.PHONY: dev simulator dev-stack dev-web down down-v kill-ports test wire-dump help
 # dev-backend:* targets intentionally use a colon in their
 # name; make's .PHONY list rejects colons, so they are not
 # listed here — they are treated as phony automatically because
@@ -34,8 +34,6 @@ dev: kill-ports
 	@echo "Backends up. Starting Vue dev server with hot-reload..."
 	@echo "  Web → http://localhost:$(VITE_PORT)"
 	@exec pnpm --filter web dev
-
-csms: dev-stack
 
 simulator: dev-web
 
@@ -75,10 +73,6 @@ dev-backend\:message-processor:
 	@echo "Starting message-processor on :7091..."
 	@cd apps/message-processor && MQTT_BROKER_URL=tcp://localhost:1883 MQTT_CLIENT_ID=message-processor-local OCPP_CORE_URL=http://localhost:7090 HEALTH_ADDR=:7091 go run ./cmd/processor
 
-dev-backend\:csms:
-	@echo "Starting csms on :8080..."
-	@cd apps/csms && go run ./cmd/server
-
 down:
 	@echo "Stopping backend stack (containers kept, use 'make down-v' to remove)..."
 	@docker compose stop
@@ -98,7 +92,7 @@ kill-ports:
 # with GOWORK=off so the workspace is not consulted. This
 # mirrors what CI and contributors run locally.
 test:
-	@set -e; for d in apps/csms apps/ocpp-gateway apps/ocpp-core apps/message-processor packages/ocpp-protocol packages/ocpp-schemas; do \
+	@set -e; for d in apps/ocpp-gateway apps/ocpp-core apps/message-processor packages/ocpp-protocol packages/ocpp-schemas; do \
 		echo "=== $$d ==="; \
 		(cd "$$d" && GOWORK=off go test ./...); \
 	done
@@ -113,15 +107,14 @@ wire-dump:
 help:
 	@echo "v4.3 dev entry points:"
 	@echo "  make dev                 - bring up backends in compose, then vite with HMR"
-	@echo "  make csms                - backend OCPP stack only (compose)"
 	@echo "  make simulator           - Vue simulator only (vite)"
 	@echo "  make dev-stack           - backends only (no UI), waits for health"
 	@echo "  make dev-web             - vite only (assumes backends are up)"
 	@echo "  make dev-backend:<svc>   - one Go service via go run, bypasses compose"
-	@echo "                             (ocpp-gateway, ocpp-core, message-processor, csms)"
+	@echo "                             (ocpp-gateway, ocpp-core, message-processor)"
 	@echo "  make down                - stop containers (keeps them, fast restart)"
 	@echo "  make down-v              - stop + remove containers & volumes (DBs)"
 	@echo "  make kill-ports          - free vite port ($(VITE_PORT))"
-	@echo "  make test                - run all 6 Go module tests with GOWORK=off"
+	@echo "  make test                - run all 5 Go module tests with GOWORK=off"
 	@echo "  make wire-dump           - run a fake CP and capture MQTT frames"
 	@echo "  make help                - this message"

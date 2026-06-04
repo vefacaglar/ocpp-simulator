@@ -1,5 +1,7 @@
 # Connector Start Flow Revizyon — Uygulama Planı
 
+> Superseded note: the standalone mock Central System described in this historical plan was removed. CSMS-initiated commands now enter through `ocpp-core`, publish raw OCPP CALL frames to `ocpp/{chargePointId}/out`, and reach the charge point through `ocpp-gateway`.
+
 ## 1. Mevcut Durum Analizi
 
 ### 1.1 Bugünkü Akış (Problemli)
@@ -20,14 +22,14 @@ Available → [Start TX butonu] → StatusNotification(Preparing) + StartTransac
 |--------|---------------|------------|
 | OCPP session proxy (`/api/ws/{cpId}`) | Frontend-controlled simulated charge point | İlgili unit için ayrı OCPP WebSocket session açar ve frame'leri `centralSystemUrl/{cpId}` adresine taşır |
 | UI realtime (`/api/realtime`) | Frontend | Log/state/event izler; OCPP transport değildir |
-| Mock CSMS REST API | Dış test istemcisi / UI dev tool | CSMS-initiated CALL üretir ve bağlı CP'nin OCPP socket'inden gönderir |
+| `ocpp-core` internal CSMS API | Dış test istemcisi / UI dev tool | CSMS-initiated CALL üretir ve bağlı CP'nin OCPP socket'inden gönderir |
 
 Frontend şu an proxy WS üzerinden BootNotification, Heartbeat, StatusNotification, Authorize, StartTransaction, StopTransaction, MeterValues gönderiyor. Bu proje için bu kabul edilen CP-initiated davranıştır: UI cihaz davranışını kontrol eder, ama her unit yine kendi OCPP WebSocket session'ı üzerinden CSMS ile konuşur. Bu akış runtime command API'lerine taşınmamalı.
 
 ### 1.3 Karar: Unit Başına OCPP Session + CSMS-Initiated API
 
 - **Local/CP-initiated akışlar:** UI, seçili unit'in `/api/ws/{cpId}` OCPP session'ını kullanır. Plug/Unplug/Authorize/Start/Stop/MeterValues/StatusNotification bu session'dan gider.
-- **RemoteStart/RemoteStop (CSMS-initiated):** Dışarıdan istek mock CSMS API'sine gelir; mock CSMS hedef CP'nin mevcut OCPP socket'i üzerinden `RemoteStartTransaction` / `RemoteStopTransaction` CALL gönderir.
+- **RemoteStart/RemoteStop (CSMS-initiated):** Dışarıdan istek `ocpp-core` internal API'sine gelir; `ocpp-core` hedef CP'nin mevcut OCPP socket'ine ulaşacak şekilde `RemoteStartTransaction` / `RemoteStopTransaction` CALL publish eder.
 - **DB persistansı:** Bu faz kapsamında değil (frontend in-memory state yeterli).
 
 ---
@@ -72,7 +74,7 @@ Available ──Disable──> Unavailable ──Enable──> Available
 [Unplug]     CP → StatusNotification(connectorId, Available)      ← CS {}
 ```
 
-**Akış B — Uzaktan Başlatma (CSMS-initiated, mock CSMS API):**
+**Akış B — Uzaktan Başlatma (CSMS-initiated, ocpp-core API):**
 ```
 [Plug In]    CP → StatusNotification(connectorId, Preparing)     ← CS {}
              CS → RemoteStartTransaction(idTag, connectorId)     → CP {status: Accepted}
@@ -437,7 +439,7 @@ Mevcut durumda connector status sadece API'den fetch edildiğinde güncelleniyor
 | `apps/api/internal/simulator/inbound_handler.go` | CSMS-initiated handling zaten mevcut |
 | `apps/api/internal/simulator/state_machine.go` | Durum makinesi zaten doğru |
 | `apps/api/internal/ocpp/v16/protocol.go` | BuildAuthorize zaten mevcut |
-| `apps/csms/` | Mock CSMS handler'ları zaten mevcut |
+| `apps/ocpp-core/internal/csms/` | CSMS-initiated CALL üretimi burada |
 
 ---
 

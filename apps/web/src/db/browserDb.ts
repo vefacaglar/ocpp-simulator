@@ -31,6 +31,15 @@ interface AppStateRecord {
   value: unknown
 }
 
+export interface BrowserDbExport {
+  version: 1
+  exportedAt: string
+  chargePoints: ChargePointRecord[]
+  connectors: ConnectorRecord[]
+  ocppLogs: RealtimeEvent[]
+  appState: AppStateRecord[]
+}
+
 let dbPromise: Promise<IDBDatabase> | null = null
 
 function db(): Promise<IDBDatabase> {
@@ -93,6 +102,11 @@ export async function listChargePoints(): Promise<ChargePointRecord[]> {
   )
 }
 
+async function listAppState(): Promise<AppStateRecord[]> {
+  const store = await readonlyStore('appState')
+  return request<AppStateRecord[]>(store.getAll())
+}
+
 export async function getChargePoint(id: string): Promise<ChargePointRecord | undefined> {
   const store = await readonlyStore('chargePoints')
   return request<ChargePointRecord | undefined>(store.get(id))
@@ -129,8 +143,8 @@ export async function createConnector(chargePointId: string): Promise<ConnectorR
   const now = new Date().toISOString()
   const recordWithoutId: Omit<ConnectorRecord, 'id'> = {
     chargePointId,
-    evseId: 1,
     connectorNumber: maxConnector + 1,
+    evseId: maxConnector + 1,
     status: 'Available',
     createdAt: now,
     updatedAt: now,
@@ -192,4 +206,54 @@ async function listAllOcppLogs(chargePointId: string): Promise<RealtimeEvent[]> 
   const store = await readonlyStore('ocppLogs')
   const rows = await request<RealtimeEvent[]>(store.index('chargePointId').getAll(chargePointId))
   return rows
+}
+
+async function listAllConnectors(): Promise<ConnectorRecord[]> {
+  const store = await readonlyStore('connectors')
+  return request<ConnectorRecord[]>(store.getAll())
+}
+
+function normalizeConnector(record: ConnectorRecord): ConnectorRecord {
+  if (record.evseId === record.connectorNumber) return record
+  return { ...record, evseId: record.connectorNumber }
+}
+
+async function listAllLogs(): Promise<RealtimeEvent[]> {
+  const store = await readonlyStore('ocppLogs')
+  return request<RealtimeEvent[]>(store.getAll())
+}
+
+export async function exportBrowserDb(): Promise<BrowserDbExport> {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    chargePoints: await listChargePoints(),
+    connectors: (await listAllConnectors()).map(normalizeConnector),
+    ocppLogs: await listAllLogs(),
+    appState: await listAppState(),
+  }
+}
+
+export async function importBrowserDb(data: BrowserDbExport): Promise<void> {
+  if (data.version !== 1) {
+    throw new Error('unsupported import version')
+  }
+  if (
+    !Array.isArray(data.chargePoints) ||
+    !Array.isArray(data.connectors) ||
+    !Array.isArray(data.ocppLogs) ||
+    !Array.isArray(data.appState)
+  ) {
+    throw new Error('invalid import file')
+  }
+  const database = await db()
+  const tx = database.transaction(['chargePoints', 'connectors', 'ocppLogs', 'appState'], 'readwrite')
+  for (const storeName of ['chargePoints', 'connectors', 'ocppLogs', 'appState']) {
+    tx.objectStore(storeName).clear()
+  }
+  for (const row of data.chargePoints) tx.objectStore('chargePoints').put(row)
+  for (const row of data.connectors) tx.objectStore('connectors').put(row)
+  for (const row of data.ocppLogs) tx.objectStore('ocppLogs').put(row)
+  for (const row of data.appState) tx.objectStore('appState').put(row)
+  await transactionDone(tx)
 }

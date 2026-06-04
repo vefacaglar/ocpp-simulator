@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useSettingsStore } from '../stores/settingsStore'
+import { exportBrowserDb, importBrowserDb, type BrowserDbExport } from '../db/browserDb'
 
 const settings = useSettingsStore()
 const draftUrl = ref(settings.centralSystemUrl)
 const saved = ref(false)
+const importInput = ref<HTMLInputElement | null>(null)
+const importError = ref<string | null>(null)
 
 watch(
   () => settings.centralSystemUrl,
@@ -19,6 +22,38 @@ async function save() {
   window.setTimeout(() => {
     saved.value = false
   }, 1800)
+}
+
+async function exportData() {
+  const data = await exportBrowserDb()
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `ocpp-simulator-${new Date().toISOString().slice(0, 10)}.json`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function openImportPicker() {
+  importError.value = null
+  importInput.value?.click()
+}
+
+async function importData(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const text = await file.text()
+    const data = JSON.parse(text) as BrowserDbExport
+    await importBrowserDb(data)
+    window.location.reload()
+  } catch (err: any) {
+    importError.value = err.message || 'Import failed'
+  } finally {
+    input.value = ''
+  }
 }
 </script>
 
@@ -43,6 +78,20 @@ async function save() {
         <span v-if="saved" class="saved">Saved</span>
       </div>
     </section>
+
+    <section class="settings-section data-section">
+      <div class="section-eyebrow">— Data</div>
+      <h2>Import / Export</h2>
+      <p class="hint">
+        Export or restore charge points, connectors, selected state, settings, and live OCPP logs.
+      </p>
+      <div class="actions">
+        <button class="btn" @click="exportData">Export JSON</button>
+        <button class="btn" @click="openImportPicker">Import JSON</button>
+        <input ref="importInput" class="file-input" type="file" accept="application/json,.json" @change="importData" />
+      </div>
+      <p v-if="importError" class="error">{{ importError }}</p>
+    </section>
   </div>
 </template>
 
@@ -57,6 +106,12 @@ async function save() {
 
 .settings-section {
   max-width: 720px;
+}
+
+.data-section {
+  margin-top: 44px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .section-eyebrow {
@@ -141,8 +196,19 @@ h2 {
   border-color: var(--accent);
 }
 
+.file-input {
+  display: none;
+}
+
 .saved {
   color: var(--status-online);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+}
+
+.error {
+  margin-top: 12px;
+  color: var(--status-fault);
   font-family: var(--font-mono);
   font-size: 0.74rem;
 }

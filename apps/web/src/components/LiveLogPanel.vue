@@ -78,7 +78,7 @@ async function exportAllLogs() {
       <div v-else-if="selectedEvents.length === 0" class="empty-state">
         <p class="empty-title">No events yet.</p>
       </div>
-      <TransitionGroup name="list" tag="div" class="log-rows" v-else>
+      <TransitionGroup name="list" tag="div" class="log-rows" :key="selectedId" v-else>
         <div v-for="event in selectedEvents" :key="event.id" class="log-row" :class="eventClass(event.type)" @click="openDrawer(event)">
           <span class="log-time">{{ formatTime(event.timestamp) }}</span>
           <span class="log-type">{{ event.type }}</span>
@@ -387,15 +387,20 @@ async function exportAllLogs() {
 }
 
 /* Animations */
-.list-enter-active,
+.list-enter-active {
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s;
+}
 .list-leave-active,
 .list-move {
-  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.list-enter-from,
-.list-leave-to {
+.list-enter-from {
   opacity: 0;
   transform: translateY(-10px);
+}
+.list-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
 }
 .list-leave-active {
   position: absolute;

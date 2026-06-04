@@ -212,4 +212,10 @@ h2 {
   font-family: var(--font-mono);
   font-size: 0.74rem;
 }
+
+@media (max-width: 768px) {
+  .settings-page {
+    padding: 24px 16px;
+  }
+}
 </style>

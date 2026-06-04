@@ -425,4 +425,23 @@ function handleAuthorize(connectorId: number) {
 .idtag-input:focus {
   border-color: var(--border-strong);
 }
+
+@media (max-width: 768px) {
+  .panel-body {
+    padding: 20px 16px 24px 16px;
+  }
+  .detail-content {
+    gap: 24px;
+  }
+}
+
+@media (max-width: 480px) {
+  .auth-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .idtag-input {
+    width: 100%;
+  }
+}
 </style>

@@ -306,4 +306,34 @@ function closeDrawer() {
   word-break: break-all;
   line-height: 1.5;
 }
+
+@media (max-width: 600px) {
+  .log-row {
+    grid-template-columns: 60px 1fr;
+    grid-template-rows: auto auto;
+    gap: 4px;
+    padding: 8px;
+  }
+  .log-time {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .log-type {
+    grid-column: 2;
+    grid-row: 1;
+    font-weight: 500;
+  }
+  .log-msg {
+    grid-column: 1 / span 2;
+    grid-row: 2;
+    white-space: normal;
+    word-break: break-all;
+  }
+}
+
+@media (max-width: 480px) {
+  .drawer {
+    width: 100%;
+  }
+}
 </style>

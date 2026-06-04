@@ -1,17 +1,30 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import ChargePointList from './components/ChargePointList.vue'
 import ChargePointDetail from './components/ChargePointDetail.vue'
 import LiveLogPanel from './components/LiveLogPanel.vue'
 import SettingsPage from './components/SettingsPage.vue'
 import { useSettingsStore } from './stores/settingsStore'
+import { useChargePointStore } from './stores/chargePointStore'
 
 const settings = useSettingsStore()
+const cpStore = useChargePointStore()
 const view = ref<'simulator' | 'settings'>('simulator')
+const activeTab = ref<'list' | 'detail' | 'logs'>('list')
 
 onMounted(() => {
   void settings.loadSettings()
 })
+
+// Auto-switch to Detail tab on mobile when a charge point is selected
+watch(
+  () => cpStore.selectedId,
+  (newId) => {
+    if (newId && window.innerWidth < 1024) {
+      activeTab.value = 'detail'
+    }
+  }
+)
 </script>
 
 <template>
@@ -35,9 +48,24 @@ onMounted(() => {
       </div>
     </header>
     <main v-if="view === 'simulator'" class="content">
-      <ChargePointList class="panel-left" />
-      <ChargePointDetail class="panel-center" />
-      <LiveLogPanel class="panel-right" />
+      <ChargePointList class="panel-left" :class="{ 'mobile-hidden': activeTab !== 'list' }" />
+      <ChargePointDetail class="panel-center" :class="{ 'mobile-hidden': activeTab !== 'detail' }" />
+      <LiveLogPanel class="panel-right" :class="{ 'mobile-hidden': activeTab !== 'logs' }" />
+
+      <nav class="mobile-tabs">
+        <button :class="{ active: activeTab === 'list' }" @click="activeTab = 'list'">
+          <span class="tab-icon">☰</span>
+          <span class="tab-label">List</span>
+        </button>
+        <button :class="{ active: activeTab === 'detail' }" @click="activeTab = 'detail'">
+          <span class="tab-icon">⚡</span>
+          <span class="tab-label">Detail</span>
+        </button>
+        <button :class="{ active: activeTab === 'logs' }" @click="activeTab = 'logs'">
+          <span class="tab-icon">▤</span>
+          <span class="tab-label">Logs</span>
+        </button>
+      </nav>
     </main>
     <main v-else class="settings-content">
       <SettingsPage />
@@ -173,5 +201,80 @@ onMounted(() => {
 .panel-right {
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
   border-left: none;
+}
+
+.mobile-tabs {
+  display: none;
+}
+
+@media (max-width: 1023px) {
+  .content {
+    grid-template-columns: 1fr;
+    padding: 0 16px calc(16px + 56px) 16px;
+  }
+
+  .panel-left,
+  .panel-center,
+  .panel-right {
+    border-radius: var(--radius-md) !important;
+    border: 1px solid var(--border-strong) !important;
+  }
+
+  .mobile-hidden {
+    display: none !important;
+  }
+
+  .mobile-tabs {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: var(--bg-elevated);
+    border-top: 1px solid var(--border-strong);
+    z-index: 100;
+  }
+
+  .mobile-tabs button {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.02em;
+    color: var(--text-muted);
+    transition: color 0.15s, background 0.15s;
+  }
+
+  .mobile-tabs button .tab-icon {
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+
+  .mobile-tabs button:hover,
+  .mobile-tabs button.active {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+}
+
+@media (max-width: 768px) {
+  .top-bar {
+    padding: 0 16px;
+    height: 60px;
+  }
+  
+  .meta {
+    display: none;
+  }
+  
+  .content,
+  .settings-content {
+    padding: 0 16px 16px 16px;
+  }
 }
 </style>

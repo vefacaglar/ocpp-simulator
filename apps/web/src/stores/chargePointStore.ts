@@ -6,6 +6,7 @@ import { GatewayClient, type IGatewayClient } from '../ocpp/gatewayClient'
 import { buildResponse, UnknownActionError, NOT_IMPLEMENTED } from '../ocpp/callResponses'
 import { uniqueId } from '../ocpp/uniqueId'
 import { useRealtimeStore } from './realtimeStore'
+import { getAppState, setAppState } from '../db/browserDb'
 
 // ConnectorState mirrors the OCPP 1.6J connector status enum plus a
 // local-only `cablePluggedIn` flag the UI uses to drive the plug-in
@@ -104,13 +105,17 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     }))
   })
 
-  // ─── CRUD (simulator-api) ─────────────────────────────────────────────
+  // ─── Local CRUD (browser IndexedDB) ───────────────────────────────────
 
   async function loadChargePoints() {
     loading.value = true
     error.value = null
     try {
       chargePoints.value = await api.fetchChargePoints()
+      const persistedSelectedId = await getAppState<string>('selectedChargePointId')
+      if (persistedSelectedId && chargePoints.value.some((cp) => cp.id === persistedSelectedId)) {
+        await selectChargePoint(persistedSelectedId)
+      }
     } catch (e: any) {
       error.value = e.message
     } finally {
@@ -122,6 +127,8 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     selectedId.value = id
     try {
       selectedDetail.value = await api.fetchChargePoint(id)
+      await setAppState('selectedChargePointId', id)
+      await realtimeStore.loadEventsForChargePoint(id)
     } catch (e: any) {
       error.value = e.message
     }
@@ -142,9 +149,11 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     try {
       disconnectWS(id)
       await api.deleteChargePoint(id)
+      realtimeStore.clearEventsForChargePoint(id)
       if (selectedId.value === id) {
         selectedId.value = null
         selectedDetail.value = null
+        await setAppState('selectedChargePointId', null)
       }
       await loadChargePoints()
     } catch (e: any) {
@@ -187,10 +196,6 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     if (cpStates.value.has(cpId)) {
       disconnectWS(cpId)
     }
-    // Ensure the charge point detail is loaded so we know the
-    // OCPP version to advertise in the WebSocket subprotocol
-    // header. selectChargePoint is idempotent and refreshes
-    // selectedDetail from simulator-api.
     if (!selectedDetail.value || selectedDetail.value.chargePoint.id !== cpId) {
       try {
         await selectChargePoint(cpId)
@@ -210,8 +215,6 @@ export const useChargePointStore = defineStore('chargePoint', () => {
         runtime.connectionStatus = 'connected'
         runtime.registration = 'pending'
         sendBootNotification(cpId)
-        loadChargePoints()
-        selectChargePoint(cpId)
       },
       onClose: () => {
         runtime.connectionStatus = 'disconnected'
@@ -377,8 +380,6 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       state.heartbeatInterval = interval
       sendInitialStatusNotifications(cpId)
       scheduleHeartbeat(cpId)
-      loadChargePoints()
-      selectChargePoint(cpId)
     } else if (status === 'Pending') {
       state.registration = 'pending'
     } else if (status === 'Rejected') {

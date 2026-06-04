@@ -1,41 +1,29 @@
-// CRUD + config API client for simulator-api. OCPP frame transport
-// is no longer here in the v4.3 split; the Vue app opens one
-// WebSocket per charge point directly to ocpp-gateway (see
-// src/ocpp/gatewayClient.ts). This module is intentionally limited
-// to charge-point, connector, and settings management.
+import {
+  createConnector,
+  deleteChargePointCascade,
+  deleteConnectorRecord,
+  getChargePoint,
+  listChargePoints,
+  listConnectors,
+  putChargePoint,
+  type ChargePointRecord,
+  type ConnectorRecord,
+} from '../db/browserDb'
 
-export interface ChargePoint {
-  id: string
-  name: string
-  ocppVersion: string
-  centralSystemUrl: string
-  connectorCount: number
-  autoConnect: boolean
-  status: 'disconnected' | 'connecting' | 'connected'
-  createdAt: string
-  updatedAt: string
-}
-
-export interface Connector {
-  id: number
-  chargePointId: string
-  evseId: number
-  connectorNumber: number
-  status: string
-  createdAt: string
-  updatedAt: string
-}
+export type ChargePoint = ChargePointRecord
+export type Connector = ConnectorRecord
 
 export async function fetchChargePoints(): Promise<ChargePoint[]> {
-  const res = await fetch('/api/charge-points')
-  if (!res.ok) throw new Error('failed to fetch')
-  return res.json()
+  return listChargePoints()
 }
 
 export async function fetchChargePoint(id: string): Promise<{ chargePoint: ChargePoint; connectors: Connector[] }> {
-  const res = await fetch(`/api/charge-points/${id}`)
-  if (!res.ok) throw new Error('failed to fetch')
-  return res.json()
+  const chargePoint = await getChargePoint(id)
+  if (!chargePoint) throw new Error('charge point not found')
+  return {
+    chargePoint,
+    connectors: await listConnectors(id),
+  }
 }
 
 export async function createChargePoint(input: {
@@ -44,40 +32,40 @@ export async function createChargePoint(input: {
   ocppVersion?: string
   centralSystemUrl?: string
 }): Promise<ChargePoint> {
-  const res = await fetch('/api/charge-points', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  if (!res.ok) {
-    const err = await res.json()
-    throw new Error(err.error || 'failed to create')
+  const existing = await getChargePoint(input.id)
+  if (existing) throw new Error('charge point already exists')
+
+  const now = new Date().toISOString()
+  const record: ChargePoint = {
+    id: input.id,
+    name: input.name || input.id,
+    ocppVersion: input.ocppVersion || '1.6J',
+    centralSystemUrl: input.centralSystemUrl || 'ws://localhost:8080/ocpp',
+    connectorCount: 0,
+    autoConnect: false,
+    status: 'disconnected',
+    createdAt: now,
+    updatedAt: now,
   }
-  return res.json()
+  await putChargePoint(record)
+  return record
 }
 
 export async function deleteChargePoint(id: string): Promise<void> {
-  const res = await fetch(`/api/charge-points/${id}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('failed to delete')
+  await deleteChargePointCascade(id)
 }
 
 export async function addConnector(chargePointId: string): Promise<Connector> {
-  const res = await fetch(`/api/charge-points/${chargePointId}/connectors`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  })
-  if (!res.ok) throw new Error('failed to add connector')
-  return res.json()
+  return createConnector(chargePointId)
 }
 
 export async function deleteConnector(chargePointId: string, connectorId: number): Promise<void> {
-  const res = await fetch(`/api/charge-points/${chargePointId}/connectors/${connectorId}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error('failed to delete connector')
+  await deleteConnectorRecord(chargePointId, connectorId)
 }
 
 export async function fetchVersions(): Promise<{ version: string; label: string; status: string }[]> {
-  const res = await fetch('/api/versions')
-  if (!res.ok) throw new Error('failed to fetch versions')
-  return res.json()
+  return [
+    { version: '1.6J', label: 'OCPP 1.6J', status: 'enabled' },
+    { version: '2.0.1', label: 'OCPP 2.0.1', status: 'planned' },
+  ]
 }

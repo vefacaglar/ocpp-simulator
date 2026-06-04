@@ -43,8 +43,9 @@ async function onSubmit() {
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('close')">
-    <div class="modal">
+  <Transition name="modal" appear>
+    <div class="modal-overlay" @click.self="emit('close')">
+      <div class="modal">
       <div class="modal-header">
         <div>
           <div class="eyebrow">— {{ props.editId ? 'Edit Instance' : 'New Instance' }}</div>
@@ -75,6 +76,7 @@ async function onSubmit() {
       </form>
     </div>
   </div>
+  </Transition>
 </template>
 
 <style scoped>
@@ -217,6 +219,24 @@ async function onSubmit() {
   background: #efe7d0;
   color: var(--accent-ink);
   border-color: #efe7d0;
+}
+
+/* Modal Animation */
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+.modal-enter-active .modal,
+.modal-leave-active .modal {
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.modal-enter-from .modal,
+.modal-leave-to .modal {
+  transform: scale(0.95);
 }
 </style>
 

@@ -115,8 +115,9 @@ async function confirmClear() {
     </section>
 
     <!-- Clear Confirm Modal -->
-    <div v-if="showClearConfirm" class="modal-overlay" @click.self="showClearConfirm = false">
-      <div class="modal">
+    <Transition name="modal">
+      <div v-if="showClearConfirm" class="modal-overlay" @click.self="showClearConfirm = false">
+        <div class="modal">
         <div class="modal-header">
           <div>
             <div class="eyebrow">— Danger Zone</div>
@@ -136,7 +137,8 @@ async function confirmClear() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -369,5 +371,23 @@ h2 {
   .settings-page {
     padding: 24px 16px;
   }
+}
+
+/* Modal Animation */
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+.modal-enter-active .modal,
+.modal-leave-active .modal {
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.modal-enter-from .modal,
+.modal-leave-to .modal {
+  transform: scale(0.95);
 }
 </style>

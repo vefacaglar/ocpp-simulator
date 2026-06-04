@@ -33,10 +33,16 @@ docker compose up -d --build
 
 ### Local Dev Workflow
 
-To run the backends in Docker and the UI locally with Vite HMR:
+To run the full stack (backend services in Docker + web UI locally):
 
 ```bash
-make dev
+pnpm dev
+```
+
+To run **only** the web UI (useful if the backends are already running or you are working purely on frontend logic):
+
+```bash
+pnpm dev:web
 ```
 
 Other useful commands:

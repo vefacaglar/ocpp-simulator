@@ -78,16 +78,17 @@ async function exportAllLogs() {
       <div v-else-if="selectedEvents.length === 0" class="empty-state">
         <p class="empty-title">No events yet.</p>
       </div>
-      <div v-else class="log-rows">
+      <TransitionGroup name="list" tag="div" class="log-rows" v-else>
         <div v-for="event in selectedEvents" :key="event.id" class="log-row" :class="eventClass(event.type)" @click="openDrawer(event)">
           <span class="log-time">{{ formatTime(event.timestamp) }}</span>
           <span class="log-type">{{ event.type }}</span>
           <span class="log-msg">{{ event.message }}</span>
         </div>
-      </div>
+      </TransitionGroup>
     </div>
 
-    <div v-if="drawerEvent" class="drawer-overlay" @click.self="closeDrawer">
+    <Transition name="drawer">
+      <div v-if="drawerEvent" class="drawer-overlay" @click.self="closeDrawer">
       <div class="drawer">
         <div class="drawer-header">
           <h3>Event Detail</h3>
@@ -111,7 +112,8 @@ async function exportAllLogs() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -382,5 +384,37 @@ async function exportAllLogs() {
   .drawer {
     width: 100%;
   }
+}
+
+/* Animations */
+.list-enter-active,
+.list-leave-active,
+.list-move {
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+.list-leave-active {
+  position: absolute;
+}
+
+.drawer-enter-active,
+.drawer-leave-active {
+  transition: opacity 0.3s ease;
+}
+.drawer-enter-from,
+.drawer-leave-to {
+  opacity: 0;
+}
+.drawer-enter-active .drawer,
+.drawer-leave-active .drawer {
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.drawer-enter-from .drawer,
+.drawer-leave-to .drawer {
+  transform: translateX(100%);
 }
 </style>

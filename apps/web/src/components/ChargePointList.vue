@@ -54,7 +54,7 @@ function openAddModal() {
         <p class="empty-title">No charge points yet.</p>
         <p class="hint">Press + to add one.</p>
       </div>
-      <div v-else class="cp-items">
+      <TransitionGroup name="list" tag="div" class="cp-items" v-else>
         <div
           v-for="cp in store.chargePointsWithStatus"
           :key="cp.id"
@@ -74,7 +74,7 @@ function openAddModal() {
             </div>
           </div>
         </div>
-      </div>
+      </TransitionGroup>
     </div>
     <div v-if="store.error" class="error-bar">{{ store.error }}</div>
     <AddChargePointModal v-if="showModal" :edit-id="editId" @close="showModal = false" />
@@ -268,5 +268,20 @@ function openAddModal() {
   font-size: 0.72rem;
   border-top: 1px solid var(--border-subtle);
   letter-spacing: 0.04em;
+}
+
+/* Animations */
+.list-enter-active,
+.list-leave-active,
+.list-move {
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+.list-leave-active {
+  position: absolute;
 }
 </style>

@@ -67,7 +67,7 @@ async function exportAllLogs() {
         <span class="subtitle">Realtime events</span>
       </div>
       <div class="header-actions">
-        <span class="count" v-if="selectedEvents.length">{{ selectedEvents.length }}</span>
+        <span class="count" v-if="selectedId">{{ rtStore.totalLogCounts[selectedId] || selectedEvents.length }}</span>
         <button v-if="selectedId" class="btn-export" @click="exportAllLogs" title="Export All Logs">Export</button>
       </div>
     </div>

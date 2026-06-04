@@ -220,6 +220,11 @@ export async function listOcppLogs(chargePointId: string, limit = 500): Promise<
   return rows.sort((a, b) => a.timestamp.localeCompare(b.timestamp)).slice(-limit)
 }
 
+export async function countOcppLogs(chargePointId: string): Promise<number> {
+  const store = await readonlyStore('ocppLogs')
+  return request<number>(store.index('chargePointId').count(chargePointId))
+}
+
 async function listAllOcppLogs(chargePointId: string): Promise<RealtimeEvent[]> {
   const store = await readonlyStore('ocppLogs')
   const rows = await request<RealtimeEvent[]>(store.index('chargePointId').getAll(chargePointId))

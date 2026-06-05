@@ -337,13 +337,13 @@ validate against the official schema; cover CALL/CALLRESULT/CALLERROR framing, d
 round-trip, correlation, and golden fixtures. A non-spec payload must be rejected.
 
 ### Phase A — Schemas (`packages/ocpp-schemas`)
-1. Download the official 2.0.1 schemas. **Source note (verified):** there is NO public
-   `github.com/openchargealliance/ocpp` repo — cloning it 404s. The canonical OCA "OCPP
-   2.0.1 FINAL" JSON schemas (`"comment": "OCPP 2.0.1 FINAL"` inside each file) are
-   distributed in the registration-gated OCA spec package; if you have it, use it. The
-   verified public, byte-identical vendored copy is **`github.com/mobilityhouse/ocpp`** under
-   `ocpp/v201/schemas/` (alternative: `github.com/EVerest/libocpp`). Content is identical
-   across sources — provenance/naming is the only difference.
+1. Download the official 2.0.1 schemas. **Source (verified working):**
+   **`github.com/mobilityhouse/ocpp`** under `ocpp/v201/schemas/` — these are the canonical
+   OCA "OCPP 2.0.1 FINAL" JSON schemas (`"comment": "OCPP 2.0.1 FINAL"` inside each file),
+   vendored verbatim. Alternative byte-identical source: `github.com/EVerest/libocpp`.
+   The OCA itself distributes these only in a registration-gated spec package and has no
+   public cloneable schema repo, so use the vendored copy above; content is identical —
+   provenance/naming is the only difference.
 
    **Naming mismatch to handle:** official files are `{Action}Request.json` /
    `{Action}Response.json`, but the validator loader (`validator.go` builds

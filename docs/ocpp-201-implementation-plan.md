@@ -362,22 +362,10 @@ round-trip, correlation, and golden fixtures. A non-spec payload must be rejecte
    done
    ```
 
-   **Naming mismatch to handle:** official files are `{Action}Request.json` /
-   `{Action}Response.json`, but the validator loader (`validator.go` builds
-   `{filename}.json` where response appends `Response`) expects the v16 convention
-   `{Action}.json` (request) / `{Action}Response.json` (response). So rename the request
-   file on copy. Verified working fetch (use `curl -f` so a 404 errors instead of leaving a
-   14-byte `"404: Not Found"` junk file):
-   ```bash
-   cd packages/ocpp-schemas/v201
-   BASE="https://raw.githubusercontent.com/mobilityhouse/ocpp/master/ocpp/v201/schemas"
-   for a in BootNotification Heartbeat StatusNotification Authorize TransactionEvent \
-            MeterValues RequestStartTransaction RequestStopTransaction Reset \
-            UnlockConnector TriggerMessage ChangeAvailability GetVariables SetVariables; do
-     curl -fsSL "$BASE/${a}Request.json"  -o "${a}.json"
-     curl -fsSL "$BASE/${a}Response.json" -o "${a}Response.json"
-   done
-   ```
+   **Naming note (already applied above):** official files are `{Action}Request.json` /
+   `{Action}Response.json`, but the validator loader (`validator.go` builds `{filename}.json`
+   where response appends `Response`) expects the v16 convention `{Action}.json` (request) /
+   `{Action}Response.json` (response) — hence the recipe writes the request to `{Action}.json`.
    Replace the existing `v201/BootNotification.json` placeholder. Delete any leftover
    14-byte `*Request.json` junk files from earlier failed downloads.
 2. Add `//go:embed v201/*.json`; implement the `V201` case in `validator.go` (remove the

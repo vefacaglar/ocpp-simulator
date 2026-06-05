@@ -66,7 +66,7 @@ async function onSubmit() {
           <label>OCPP Version</label>
           <select v-model="ocppVersion">
             <option value="1.6J">OCPP 1.6J</option>
-            <option value="2.0.1" disabled>OCPP 2.0.1 (planned)</option>
+            <option value="2.0.1">OCPP 2.0.1</option>
           </select>
         </div>
         <div class="form-actions">

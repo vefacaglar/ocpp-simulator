@@ -45,11 +45,19 @@ type StopReason =
   | 'Other'
 
 interface TransactionState {
-  // 1.6J numericId, populated asynchronously from the
-  // StartTransaction.conf. Null while pending.
-  transactionId: number | null
+  // Wire transactionId. 1.6J: a numeric id assigned by the CSMS
+  // asynchronously in StartTransaction.conf. 2.0.1: a string GUID
+  // chosen by the CP up-front (in TransactionEvent Started) —
+  // present from the moment the transaction begins. Null only
+  // briefly while a 1.6J Start is in flight.
+  transactionId: string | null
   connectorId: number
+  // 2.0.1 only. Per-transaction monotonically-increasing counter
+  // starting at 0; the spec requires the CP to assign it and the
+  // CSMS uses it to detect missing events. 1.6J leaves this null.
+  seqNo: number | null
   idTag: string
+  idTokenType: string
   meterStart: number
   meterCurrent: number
   meterStop: number | null
@@ -69,10 +77,15 @@ interface PendingCallInfo {
   sentAt: number
   connectorId?: number
   idTag?: string
+  // 2.0.1 only: the OCPP 2.0.1 idToken.type carried by the
+  // Authorize.req so a subsequent TransactionEvent(Started) can
+  // include the same idToken (combined-authorization path).
+  idTokenType?: string
 }
 
 export interface ChargePointRuntime {
   client: IGatewayClient
+  ocppVersion: string
   connectionStatus: 'disconnected' | 'connecting' | 'connected'
   registration: 'disconnected' | 'pending' | 'accepted' | 'rejected'
   heartbeatInterval: number | null
@@ -122,6 +135,15 @@ export const useChargePointStore = defineStore('chargePoint', () => {
 
   function getConnectionStatus(cpId: string): 'disconnected' | 'connecting' | 'connected' {
     return cpStates.value.get(cpId)?.connectionStatus ?? 'disconnected'
+  }
+
+  // activeTransactionFor returns a read-only snapshot of the
+  // transaction state for a connector, or null when no
+  // transaction is in flight. Used by the UI to render the
+  // current transactionId, seqNo (2.0.1), and meter values.
+  function activeTransactionFor(connectorId: number): TransactionState | null {
+    if (!selectedId.value) return null
+    return cpStates.value.get(selectedId.value)?.transactions.get(connectorId) ?? null
   }
 
   function setRuntime(cpId: string, runtime: ChargePointRuntime) {
@@ -270,6 +292,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     })
     runtime = {
       client,
+      ocppVersion,
       connectionStatus: 'connecting',
       registration: 'disconnected',
       heartbeatInterval: null,
@@ -410,6 +433,10 @@ export const useChargePointStore = defineStore('chargePoint', () => {
         return handleRemoteStart(cpId, state, payload)
       case 'RemoteStopTransaction':
         return handleRemoteStop(cpId, state, payload)
+      case 'RequestStartTransaction':
+        return handleRequestStartTransaction(cpId, state, payload)
+      case 'RequestStopTransaction':
+        return handleRequestStopTransaction(cpId, state, payload)
       case 'UnlockConnector':
         return handleUnlockConnector(cpId, state, payload)
       case 'Reset':
@@ -455,13 +482,78 @@ export const useChargePointStore = defineStore('chargePoint', () => {
   }
 
   function handleRemoteStop(cpId: string, state: ChargePointRuntime, payload: Record<string, unknown> | undefined) {
-    const transactionId = typeof payload?.transactionId === 'number' ? payload.transactionId : undefined
-    const entry = Array.from(state.transactions.entries()).find(([, tx]) => tx.transactionId === transactionId)
+    // 1.6J: transactionId is a number. 2.0.1 carries a string.
+    // Coerce both to a string comparison key so the lookup is
+    // version-agnostic.
+    let key: string | undefined
+    if (typeof payload?.transactionId === 'number') key = String(payload.transactionId)
+    else if (typeof payload?.transactionId === 'string') key = payload.transactionId
+    const entry = key !== undefined
+      ? Array.from(state.transactions.entries()).find(([, tx]) => tx.transactionId === key)
+      : undefined
     if (!entry) {
-      appendRuntimeEvent(cpId, 'runtime.command_rejected', `RemoteStop rejected: transaction ${transactionId ?? 'unknown'} not active`, undefined, payload)
+      appendRuntimeEvent(cpId, 'runtime.command_rejected', `RemoteStop rejected: transaction ${key ?? 'unknown'} not active`, undefined, payload)
       return { status: 'Rejected' }
     }
-    appendRuntimeEvent(cpId, 'runtime.remote_stop_received', `RemoteStop accepted for transaction ${transactionId}`, entry[0], payload)
+    appendRuntimeEvent(cpId, 'runtime.remote_stop_received', `RemoteStop accepted for transaction ${key}`, entry[0], payload)
+    setTimeout(() => {
+      const current = cpStates.value.get(cpId)
+      if (current) stopConnectorTransactionInternal(cpId, current, entry[0], 'Remote')
+    }, 0)
+    return { status: 'Accepted' }
+  }
+
+  // handleRequestStartTransaction is the 2.0.1 counterpart of
+  // handleRemoteStart. The payload carries {idToken:{idToken,type},
+  // remoteStartId, evseId?}. We accept it when the targeted
+  // connector is free, then plug in, send Authorize, and let
+  // the normal Authorize.conf path drive TransactionEvent(Started).
+  function handleRequestStartTransaction(cpId: string, state: ChargePointRuntime, payload: Record<string, unknown> | undefined) {
+    const idToken = payload?.idToken as { idToken?: string; type?: string } | undefined
+    const idTag = idToken?.idToken ?? ''
+    const idTokenType = idToken?.type ?? 'ISO14443'
+    const evseId = typeof payload?.evseId === 'number' ? payload.evseId : undefined
+    const connectorId = evseId ?? firstConnectorIdInState(state)
+    if (!idTag || connectorId === undefined) return { status: 'Rejected' }
+
+    const cs = ensureConnectorState(state, connectorId)
+    if (cs.status !== 'Available' && cs.status !== 'Preparing') {
+      appendRuntimeEvent(cpId, 'runtime.command_rejected', `RequestStart rejected: connector ${connectorId} is ${cs.status}`, connectorId, payload)
+      return { status: 'Rejected' }
+    }
+
+    cs.pendingRemoteStartIdTag = idTag
+    appendRuntimeEvent(cpId, 'runtime.remote_start_received', `RequestStart accepted for connector ${connectorId}`, connectorId, payload)
+    setTimeout(() => {
+      const current = cpStates.value.get(cpId)
+      if (!current) return
+      const currentConnector = ensureConnectorState(current, connectorId)
+      if (currentConnector.status === 'Available') {
+        currentConnector.cablePluggedIn = true
+        currentConnector.status = 'Preparing'
+        appendRuntimeEvent(cpId, 'connector.cable_plugged', `Cable plugged on connector ${connectorId} by remote start`, connectorId)
+        sendStatusNotification(cpId, connectorId, 'Preparing', 'NoError')
+      }
+      if (currentConnector.status === 'Preparing') {
+        sendAuthorize(cpId, current, connectorId, idTag, idTokenType)
+      }
+    }, 0)
+    return { status: 'Accepted' }
+  }
+
+  // handleRequestStopTransaction is the 2.0.1 counterpart of
+  // handleRemoteStop. The transactionId is a string GUID the
+  // CP chose when the transaction started.
+  function handleRequestStopTransaction(cpId: string, state: ChargePointRuntime, payload: Record<string, unknown> | undefined) {
+    const key = typeof payload?.transactionId === 'string' ? payload.transactionId : undefined
+    const entry = key !== undefined
+      ? Array.from(state.transactions.entries()).find(([, tx]) => tx.transactionId === key)
+      : undefined
+    if (!entry) {
+      appendRuntimeEvent(cpId, 'runtime.command_rejected', `RequestStop rejected: transaction ${key ?? 'unknown'} not active`, undefined, payload)
+      return { status: 'Rejected' }
+    }
+    appendRuntimeEvent(cpId, 'runtime.remote_stop_received', `RequestStop accepted for transaction ${key}`, entry[0], payload)
     setTimeout(() => {
       const current = cpStates.value.get(cpId)
       if (current) stopConnectorTransactionInternal(cpId, current, entry[0], 'Remote')
@@ -589,6 +681,9 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       case 'StopTransaction':
         handleStopTransactionResponse(cpId, state, payload)
         return
+      case 'TransactionEvent':
+        handleTransactionEventResponse(cpId, state, payload, pending)
+        return
     }
   }
 
@@ -600,7 +695,11 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     if (!pending) return
     state.pendingCalls.delete(uid)
 
-    if (pending.action === 'Authorize' || pending.action === 'StartTransaction') {
+    if (
+      pending.action === 'Authorize' ||
+      pending.action === 'StartTransaction' ||
+      pending.action === 'TransactionEvent'
+    ) {
       if (pending.connectorId !== undefined) {
         const cs = state.connectorStates.get(pending.connectorId)
         if (cs) {
@@ -643,7 +742,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
   function sendBootNotification(cpId: string) {
     const state = cpStates.value.get(cpId)
     if (!state || !state.client.isOpen) return
-    const frame = [2, uniqueId(), 'BootNotification', { chargePointVendor: 'Simulator', chargePointModel: 'OCPP-Sim' }]
+    const frame = buildBootNotificationFrame(state.ocppVersion)
     sendFrame(cpId, state, frame, 'BootNotification')
   }
 
@@ -676,12 +775,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
   function sendStatusNotification(cpId: string, connectorId: number, status: string, errorCode: string) {
     const state = cpStates.value.get(cpId)
     if (!state || state.registration !== 'accepted' || !state.client.isOpen) return
-    const frame = [2, uniqueId(), 'StatusNotification', {
-      connectorId,
-      errorCode,
-      status,
-      timestamp: new Date().toISOString(),
-    }]
+    const frame = buildStatusNotificationFrame(state.ocppVersion, connectorId, status, errorCode)
     sendFrame(cpId, state, frame, 'StatusNotification')
   }
 
@@ -718,9 +812,9 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     })
   }
 
-  function sendAuthorize(cpId: string, state: ChargePointRuntime, connectorId: number, idTag: string) {
-    const frame = [2, uniqueId(), 'Authorize', { idTag }]
-    sendFrame(cpId, state, frame, 'Authorize', { connectorId, idTag })
+  function sendAuthorize(cpId: string, state: ChargePointRuntime, connectorId: number, idTag: string, idTokenType = 'ISO14443') {
+    const frame = buildAuthorizeFrame(state.ocppVersion, idTag, idTokenType)
+    sendFrame(cpId, state, frame, 'Authorize', { connectorId, idTag, idTokenType })
   }
 
   // ─── Authorize / StartTransaction / StopTransaction / MeterValues ───
@@ -731,19 +825,58 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     payload: Record<string, unknown>,
     pending: PendingCallInfo
   ) {
+    // 1.6J: Authorize.conf carries { idTagInfo: { status } }.
+    // 2.0.1: same shape — the spec keeps the field name.
     const idTagInfo = payload.idTagInfo as { status?: string } | undefined
     const status = idTagInfo?.status
     const connectorId = pending.connectorId
     const idTag = pending.idTag ?? 'DEADBEEF'
     if (connectorId === undefined) return
     const cs = state.connectorStates.get(connectorId)
-    if (status === 'Accepted') {
-      state.meterCounter += 100
-      const meterStart = state.meterCounter
+    if (status !== 'Accepted') {
+      if (cs) cs.status = 'Available'
+      appendRuntimeEvent(cpId, 'transaction.authorization_rejected', `Authorization rejected for connector ${connectorId}`, connectorId, { idTag, status })
+      error.value = `Authorize rejected: ${status ?? 'Unknown'}`
+      return
+    }
+
+    // Authorization accepted. Branch on the CP's negotiated OCPP
+    // version: 1.6J sends StartTransaction, 2.0.1 sends a
+    // TransactionEvent(Started) carrying the CP-chosen GUID.
+    const version = state.ocppVersion ?? '1.6J'
+    state.meterCounter += 100
+    const meterStart = state.meterCounter
+    if (version === '2.0.1') {
+      const guid = crypto.randomUUID()
       const tx: TransactionState = {
-        transactionId: null,
+        transactionId: guid,
+        seqNo: 0,
         connectorId,
         idTag,
+        idTokenType: pending.idTokenType ?? 'ISO14443',
+        meterStart,
+        meterCurrent: meterStart,
+        meterStop: null,
+        startedAt: new Date().toISOString(),
+        lastSampleAt: null,
+        soc: 20,
+        voltage: 400,
+        current: 0,
+        powerW: 0,
+        stopReason: null,
+        stopPending: false,
+        status: 'preparing',
+      }
+      state.transactions.set(connectorId, tx)
+      appendRuntimeEvent(cpId, 'transaction.authorized', `Authorization accepted for connector ${connectorId}`, connectorId, { idTag, transactionId: guid })
+      sendTransactionEventStarted(cpId, state, tx, 'Authorized')
+    } else {
+      const tx: TransactionState = {
+        transactionId: null,
+        seqNo: null,
+        connectorId,
+        idTag,
+        idTokenType: 'ISO14443',
         meterStart,
         meterCurrent: meterStart,
         meterStop: null,
@@ -766,26 +899,22 @@ export const useChargePointStore = defineStore('chargePoint', () => {
         timestamp: new Date().toISOString(),
       }]
       sendFrame(cpId, state, frame, 'StartTransaction', { connectorId })
-    } else {
-      if (cs) cs.status = 'Available'
-      appendRuntimeEvent(cpId, 'transaction.authorization_rejected', `Authorization rejected for connector ${connectorId}`, connectorId, { idTag, status })
-      error.value = `Authorize rejected: ${status ?? 'Unknown'}`
     }
   }
 
   function handleStartTransactionResponse(cpId: string, state: ChargePointRuntime, payload: Record<string, unknown>) {
     const idTagInfo = payload.idTagInfo as { status?: string } | undefined
     const status = idTagInfo?.status
-    const transactionId = payload.transactionId as number | undefined
+    const numericId = payload.transactionId as number | undefined
     const pendingTx = Array.from(state.transactions.values()).find((tx) => tx.transactionId === null)
     if (!pendingTx) return
     const connectorId = pendingTx.connectorId
     const cs = state.connectorStates.get(connectorId)
-    if (status === 'Accepted' && transactionId) {
-      pendingTx.transactionId = transactionId
+    if (status === 'Accepted' && numericId !== undefined) {
+      pendingTx.transactionId = String(numericId)
       pendingTx.status = 'charging'
       if (cs) cs.status = 'Charging'
-      appendRuntimeEvent(cpId, 'transaction.started', `Transaction ${transactionId} started on connector ${connectorId}`, connectorId, { transactionId })
+      appendRuntimeEvent(cpId, 'transaction.started', `Transaction ${numericId} started on connector ${connectorId}`, connectorId, { transactionId: numericId })
       sendStatusNotification(cpId, connectorId, 'Charging', 'NoError')
       startMeterValuesTimer(cpId)
     } else {
@@ -800,6 +929,51 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     const pendingTx = Array.from(state.transactions.values()).find((tx) => tx.stopPending)
     if (!pendingTx) return
     finishStoppedTransaction(cpId, state, pendingTx.connectorId)
+  }
+
+  // handleTransactionEventResponse closes the loop on a 2.0.1
+  // TransactionEvent.conf. The spec allows idTokenInfo,
+  // updatedPersonalMessage, chargingPriority in the body — we only
+  // honor idTokenInfo.status. A non-Accepted response drops the
+  // connector back to Available.
+  function handleTransactionEventResponse(
+    cpId: string,
+    state: ChargePointRuntime,
+    payload: Record<string, unknown>,
+    pending: PendingCallInfo
+  ) {
+    const idTokenInfo = payload.idTokenInfo as { status?: string } | undefined
+    const status = idTokenInfo?.status
+    const connectorId = pending.connectorId
+    if (connectorId === undefined) return
+    const tx = state.transactions.get(connectorId)
+    if (!tx) return
+
+    if (status === 'Accepted') {
+      // Started: we are now charging. The CSMS does not assign an
+      // id; the CP-chosen GUID (tx.transactionId) is the wire id.
+      if (tx.status === 'preparing') {
+        tx.status = 'charging'
+        const cs = state.connectorStates.get(connectorId)
+        if (cs) cs.status = 'Charging'
+        appendRuntimeEvent(cpId, 'transaction.started', `Transaction ${tx.transactionId} started on connector ${connectorId}`, connectorId, { transactionId: tx.transactionId })
+        sendStatusNotification(cpId, connectorId, 'Charging', 'NoError')
+        startMeterValuesTimer(cpId)
+      }
+      // Updated/Ended: stopPending flips to true on Ended; the
+      // .conf arrives here and we just confirm — the timeout
+      // watchdog would catch a real miss.
+      if (tx.stopPending) {
+        finishStoppedTransaction(cpId, state, connectorId)
+      }
+    } else {
+      // Anything other than Accepted tears the transaction down.
+      state.transactions.delete(connectorId)
+      const cs = state.connectorStates.get(connectorId)
+      if (cs) cs.status = 'Available'
+      appendRuntimeEvent(cpId, 'transaction.failed', `TransactionEvent rejected for connector ${connectorId}`, connectorId, { status })
+      error.value = `TransactionEvent rejected: ${status ?? 'Unknown'}`
+    }
   }
 
   function startMeterValuesTimer(cpId: string) {
@@ -819,29 +993,44 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     const state = cpStates.value.get(cpId)
     if (!state || state.registration !== 'accepted' || !state.client.isOpen) return
     advanceDcMeter(tx, 10)
-    const frame = [2, uniqueId(), 'MeterValues', {
-      connectorId,
-      transactionId: tx.transactionId,
-      meterValue: [
-        {
-          timestamp: new Date().toISOString(),
-          sampledValue: [
-            { value: String(tx.meterCurrent), measurand: 'Energy.Active.Import.Register', unit: 'Wh', context: 'Sample.Periodic' },
-            { value: String(tx.powerW), measurand: 'Power.Active.Import', unit: 'W', context: 'Sample.Periodic' },
-            { value: tx.current.toFixed(1), measurand: 'Current.Import', unit: 'A', context: 'Sample.Periodic' },
-            { value: tx.voltage.toFixed(1), measurand: 'Voltage', unit: 'V', context: 'Sample.Periodic' },
-            { value: String(tx.soc), measurand: 'SoC', unit: 'Percent', context: 'Sample.Periodic' },
-          ],
-        },
-      ],
-    }]
-    appendRuntimeEvent(cpId, 'meter_value.generated', `MeterValues generated for connector ${connectorId}`, connectorId, {
-      transactionId: tx.transactionId,
-      powerW: tx.powerW,
-      soc: tx.soc,
-      meterCurrent: tx.meterCurrent,
-    })
-    sendFrame(cpId, state, frame, 'MeterValues')
+    if (state.ocppVersion === '2.0.1') {
+      // 2.0.1 preferred path: TransactionEvent(Updated) carrying
+      // the meter sample inside the event, with explicit
+      // triggerReason and per-transaction seqNo.
+      const frame = buildTransactionEventUpdatedFrame(state.ocppVersion, tx, 10)
+      appendRuntimeEvent(cpId, 'meter_value.generated', `MeterValues (TransactionEvent Updated) for connector ${connectorId}`, connectorId, {
+        transactionId: tx.transactionId,
+        seqNo: tx.seqNo,
+        powerW: tx.powerW,
+        soc: tx.soc,
+        meterCurrent: tx.meterCurrent,
+      })
+      sendFrame(cpId, state, frame, 'TransactionEvent', { connectorId })
+    } else {
+      const frame = [2, uniqueId(), 'MeterValues', {
+        connectorId,
+        transactionId: tx.transactionId === null ? undefined : Number(tx.transactionId),
+        meterValue: [
+          {
+            timestamp: new Date().toISOString(),
+            sampledValue: [
+              { value: String(tx.meterCurrent), measurand: 'Energy.Active.Import.Register', unit: 'Wh', context: 'Sample.Periodic' },
+              { value: String(tx.powerW), measurand: 'Power.Active.Import', unit: 'W', context: 'Sample.Periodic' },
+              { value: tx.current.toFixed(1), measurand: 'Current.Import', unit: 'A', context: 'Sample.Periodic' },
+              { value: tx.voltage.toFixed(1), measurand: 'Voltage', unit: 'V', context: 'Sample.Periodic' },
+              { value: String(tx.soc), measurand: 'SoC', unit: 'Percent', context: 'Sample.Periodic' },
+            ],
+          },
+        ],
+      }]
+      appendRuntimeEvent(cpId, 'meter_value.generated', `MeterValues generated for connector ${connectorId}`, connectorId, {
+        transactionId: tx.transactionId,
+        powerW: tx.powerW,
+        soc: tx.soc,
+        meterCurrent: tx.meterCurrent,
+      })
+      sendFrame(cpId, state, frame, 'MeterValues')
+    }
   }
 
   function advanceDcMeter(tx: TransactionState, elapsedSeconds: number) {
@@ -866,7 +1055,7 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     state: ChargePointRuntime,
     frame: unknown[],
     action: string,
-    extra?: { connectorId?: number; idTag?: string }
+    extra?: { connectorId?: number; idTag?: string; idTokenType?: string }
   ) {
     if (!state.client.send(frame)) {
       // eslint-disable-next-line no-console
@@ -981,28 +1170,37 @@ export const useChargePointStore = defineStore('chargePoint', () => {
       reason,
     })
 
-    const frame = [2, uniqueId(), 'StopTransaction', {
-      transactionId: tx.transactionId,
-      idTag: tx.idTag,
-      meterStop: tx.meterStop,
-      timestamp: new Date().toISOString(),
-      reason,
-      transactionData: [
-        {
-          timestamp: new Date().toISOString(),
-          sampledValue: [
-            { value: String(tx.meterStop), measurand: 'Energy.Active.Import.Register', unit: 'Wh', context: 'Transaction.End' },
-            { value: String(tx.soc), measurand: 'SoC', unit: 'Percent', context: 'Transaction.End' },
-          ],
-        },
-      ],
-    }]
-    sendFrame(cpId, state, frame, 'StopTransaction', { connectorId })
+    if (state.ocppVersion === '2.0.1') {
+      // 2.0.1: one TransactionEvent(Ended) carries the stop
+      // reason, transactionId (string), seqNo++, and the
+      // Transaction.End meter sample. The unified flow replaces
+      // the separate StopTransaction call.
+      const frame = buildTransactionEventEndedFrame(state.ocppVersion, tx, reason)
+      sendFrame(cpId, state, frame, 'TransactionEvent', { connectorId })
+    } else {
+      const frame = [2, uniqueId(), 'StopTransaction', {
+        transactionId: Number(tx.transactionId),
+        idTag: tx.idTag,
+        meterStop: tx.meterStop,
+        timestamp: new Date().toISOString(),
+        reason,
+        transactionData: [
+          {
+            timestamp: new Date().toISOString(),
+            sampledValue: [
+              { value: String(tx.meterStop), measurand: 'Energy.Active.Import.Register', unit: 'Wh', context: 'Transaction.End' },
+              { value: String(tx.soc), measurand: 'SoC', unit: 'Percent', context: 'Transaction.End' },
+            ],
+          },
+        ],
+      }]
+      sendFrame(cpId, state, frame, 'StopTransaction', { connectorId })
+    }
     setTimeout(() => {
       const current = cpStates.value.get(cpId)
       const pending = current?.transactions.get(connectorId)
       if (current && pending?.stopPending) {
-        appendRuntimeEvent(cpId, 'runtime.response_timeout', `StopTransaction response timeout for connector ${connectorId}`, connectorId, {
+        appendRuntimeEvent(cpId, 'runtime.response_timeout', `Stop response timeout for connector ${connectorId}`, connectorId, {
           transactionId: pending.transactionId,
         })
         finishStoppedTransaction(cpId, current, connectorId)
@@ -1156,6 +1354,194 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     sendHeartbeat(selectedId.value)
   }
 
+  // ─── Version-aware wire builders ──────────────────────────────────
+  //
+  // Each builder returns a raw [2, uid, action, payload] frame for
+  // the negotiated OCPP version. 1.6J uses the spec-exact flat
+  // shapes (chargePointVendor/chargePointModel, errorCode in
+  // StatusNotification, numeric transactionId). 2.0.1 wraps the
+  // boot fields in {chargingStation:{...}}, drops errorCode from
+  // StatusNotification, and routes transactions through
+  // TransactionEvent with a per-transaction seqNo.
+
+  function buildBootNotificationFrame(version: string): unknown[] {
+    if (version === '2.0.1') {
+      return [
+        2,
+        uniqueId(),
+        'BootNotification',
+        {
+          reason: 'PowerUp',
+          chargingStation: {
+            model: 'OCPP-Sim',
+            vendorName: 'Simulator',
+          },
+        },
+      ]
+    }
+    return [2, uniqueId(), 'BootNotification', { chargePointVendor: 'Simulator', chargePointModel: 'OCPP-Sim' }]
+  }
+
+  function buildStatusNotificationFrame(
+    version: string,
+    connectorId: number,
+    status: string,
+    errorCode: string
+  ): unknown[] {
+    const timestamp = new Date().toISOString()
+    if (version === '2.0.1') {
+      return [
+        2,
+        uniqueId(),
+        'StatusNotification',
+        {
+          timestamp,
+          connectorStatus: status,
+          evseId: connectorId,
+          connectorId: 1,
+        },
+      ]
+    }
+    return [
+      2,
+      uniqueId(),
+      'StatusNotification',
+      { connectorId, errorCode, status, timestamp },
+    ]
+  }
+
+  function buildAuthorizeFrame(
+    version: string,
+    idTag: string,
+    idTokenType = 'ISO14443'
+  ): unknown[] {
+    if (version === '2.0.1') {
+      return [
+        2,
+        uniqueId(),
+        'Authorize',
+        { idToken: { idToken: idTag, type: idTokenType } },
+      ]
+    }
+    return [2, uniqueId(), 'Authorize', { idTag }]
+  }
+
+  // sendTransactionEventStarted fires the 2.0.1 unified
+  // TransactionEvent.req for the Started phase. The seqNo is
+  // recorded on the transaction state for the next event.
+  function sendTransactionEventStarted(
+    cpId: string,
+    state: ChargePointRuntime,
+    tx: TransactionState,
+    triggerReason: string
+  ) {
+    if (state.ocppVersion !== '2.0.1') return
+    const idToken = { idToken: tx.idTag, type: tx.idTokenType || 'ISO14443' }
+    const frame = [
+      2,
+      uniqueId(),
+      'TransactionEvent',
+      {
+        eventType: 'Started',
+        timestamp: new Date().toISOString(),
+        triggerReason,
+        seqNo: tx.seqNo ?? 0,
+        transactionInfo: { transactionId: tx.transactionId ?? crypto.randomUUID() },
+        evse: { id: tx.connectorId, connectorId: 1 },
+        idToken,
+      },
+    ]
+    sendFrame(cpId, state, frame, 'TransactionEvent', { connectorId: tx.connectorId })
+  }
+
+  // buildTransactionEventUpdatedFrame is the per-tick meter
+  // sample for 2.0.1. Advances seqNo on the local transaction
+  // state so the spec's monotonic-counter invariant holds.
+  function buildTransactionEventUpdatedFrame(
+    _version: string,
+    tx: TransactionState,
+    _elapsedSeconds: number
+  ): unknown[] {
+    if (tx.seqNo !== null) tx.seqNo = tx.seqNo + 1
+    const nextSeq = tx.seqNo ?? 0
+    return [
+      2,
+      uniqueId(),
+      'TransactionEvent',
+      {
+        eventType: 'Updated',
+        timestamp: new Date().toISOString(),
+        triggerReason: 'MeterValuePeriodic',
+        seqNo: nextSeq,
+        transactionInfo: { transactionId: tx.transactionId ?? '' },
+        evse: { id: tx.connectorId, connectorId: 1 },
+        meterValue: [
+          {
+            timestamp: new Date().toISOString(),
+            sampledValue: [
+              { value: String(tx.meterCurrent), measurand: 'Energy.Active.Import.Register', unit: 'Wh' },
+              { value: String(tx.powerW), measurand: 'Power.Active.Import', unit: 'W' },
+              { value: tx.current.toFixed(1), measurand: 'Current.Import', unit: 'A' },
+              { value: tx.voltage.toFixed(1), measurand: 'Voltage', unit: 'V' },
+              { value: String(tx.soc), measurand: 'SoC', unit: 'Percent' },
+            ],
+          },
+        ],
+      },
+    ]
+  }
+
+  // buildTransactionEventEndedFrame is the 2.0.1 replacement
+  // for the 1.6J StopTransaction. The stop reason from the local
+  // enum is mapped onto the spec enum (Local, Remote, ...).
+  function buildTransactionEventEndedFrame(
+    _version: string,
+    tx: TransactionState,
+    reason: StopReason
+  ): unknown[] {
+    if (tx.seqNo !== null) tx.seqNo = tx.seqNo + 1
+    return [
+      2,
+      uniqueId(),
+      'TransactionEvent',
+      {
+        eventType: 'Ended',
+        timestamp: new Date().toISOString(),
+        triggerReason: reason === 'Remote' ? 'RemoteStop' : 'StopAuthorized',
+        seqNo: tx.seqNo ?? 0,
+        transactionInfo: {
+          transactionId: tx.transactionId ?? '',
+          stoppedReason: mapStopReasonToV201(reason),
+        },
+        evse: { id: tx.connectorId, connectorId: 1 },
+        meterValue: [
+          {
+            timestamp: new Date().toISOString(),
+            sampledValue: [
+              { value: String(tx.meterStop ?? tx.meterCurrent), measurand: 'Energy.Active.Import.Register', unit: 'Wh' },
+              { value: String(tx.soc), measurand: 'SoC', unit: 'Percent' },
+            ],
+          },
+        ],
+      },
+    ]
+  }
+
+  function mapStopReasonToV201(reason: StopReason): string {
+    switch (reason) {
+      case 'Local': return 'Local'
+      case 'Remote': return 'Remote'
+      case 'EVDisconnected': return 'EVDisconnected'
+      case 'EmergencyStop': return 'EmergencyStop'
+      case 'PowerLoss': return 'PowerLoss'
+      case 'Reboot':
+      case 'SoftReset':
+      case 'HardReset': return 'Reboot'
+      case 'UnlockCommand': return 'UnlockCommand'
+      default: return 'Other'
+    }
+  }
+
   return {
     chargePoints,
     chargePointsWithStatus,
@@ -1189,5 +1575,6 @@ export const useChargePointStore = defineStore('chargePoint', () => {
     setConnectorStatus,
     isConnected,
     getConnectionStatus,
+    activeTransactionFor,
   }
 })

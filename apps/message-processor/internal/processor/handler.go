@@ -142,7 +142,7 @@ func (h *Handler) respondToCall(ctx context.Context, chargePointID, version stri
 
 	// ---- core-callback responses ----
 	case "Authorize":
-		respPayload, err = h.handleAuthorize(ctx, chargePointID, msg.Payload)
+		respPayload, err = h.handleAuthorize(ctx, chargePointID, version, msg.Payload)
 	case "StartTransaction", "StopTransaction":
 		// 1.6J-only transaction split. 2.0.1 never sends
 		// either of these — it uses TransactionEvent for the
@@ -154,13 +154,13 @@ func (h *Handler) respondToCall(ctx context.Context, chargePointID, version stri
 		// because the spec only defines these action names in
 		// 1.6J.
 		if msg.Action == "StartTransaction" {
-			respPayload, err = h.handleStartTransaction(ctx, chargePointID, msg.Payload)
+			respPayload, err = h.handleStartTransaction(ctx, chargePointID, version, msg.Payload)
 		} else {
-			respPayload, err = h.handleStopTransaction(ctx, chargePointID, msg.Payload)
+			respPayload, err = h.handleStopTransaction(ctx, chargePointID, version, msg.Payload)
 		}
 	case "TransactionEvent":
 		// 2.0.1 unified transaction flow (Started/Updated/Ended).
-		respPayload, err = h.handleTransactionEvent(ctx, chargePointID, msg.Payload)
+		respPayload, err = h.handleTransactionEvent(ctx, chargePointID, version, msg.Payload)
 
 	default:
 		h.publishError(chargePointID, version, msg.UniqueID, message.ErrorCodeNotImplemented,
@@ -353,33 +353,33 @@ func (h *Handler) handleMeterValues(version string) (json.RawMessage, error) {
 
 // --- core-callback response builders ----
 
-func (h *Handler) handleAuthorize(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
+func (h *Handler) handleAuthorize(ctx context.Context, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error) {
 	if h.Core == nil {
 		return nil, ErrCoreUnavailable
 	}
-	resp, err := h.Core.Authorize(ctx, chargePointID, payload)
+	resp, err := h.Core.Authorize(ctx, chargePointID, version, payload)
 	if err != nil {
 		return nil, err
 	}
 	return corePayload(resp)
 }
 
-func (h *Handler) handleStartTransaction(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
+func (h *Handler) handleStartTransaction(ctx context.Context, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error) {
 	if h.Core == nil {
 		return nil, ErrCoreUnavailable
 	}
-	resp, err := h.Core.StartTransaction(ctx, chargePointID, payload)
+	resp, err := h.Core.StartTransaction(ctx, chargePointID, version, payload)
 	if err != nil {
 		return nil, err
 	}
 	return corePayload(resp)
 }
 
-func (h *Handler) handleStopTransaction(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
+func (h *Handler) handleStopTransaction(ctx context.Context, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error) {
 	if h.Core == nil {
 		return nil, ErrCoreUnavailable
 	}
-	resp, err := h.Core.StopTransaction(ctx, chargePointID, payload)
+	resp, err := h.Core.StopTransaction(ctx, chargePointID, version, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -391,11 +391,11 @@ func (h *Handler) handleStopTransaction(ctx context.Context, chargePointID strin
 // { idTokenInfo, ... } — ocpp-core builds it; we forward the bytes
 // verbatim. The action name is only meaningful for 2.0.1; the
 // dispatch above routes it to this handler only for that version.
-func (h *Handler) handleTransactionEvent(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
+func (h *Handler) handleTransactionEvent(ctx context.Context, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error) {
 	if h.Core == nil {
 		return nil, ErrCoreUnavailable
 	}
-	resp, err := h.Core.TransactionEvent(ctx, chargePointID, payload)
+	resp, err := h.Core.TransactionEvent(ctx, chargePointID, version, payload)
 	if err != nil {
 		return nil, err
 	}

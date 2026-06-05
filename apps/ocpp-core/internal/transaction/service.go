@@ -139,6 +139,12 @@ func (s *Service) startV201(ctx context.Context, in StartInput) (StartResult, er
 		log.Printf("[ocpp-core/transaction] WARNING: 2.0.1 Started event arrived with no transactionId; synthesized %s", txID)
 	}
 	_, err := s.repo.Create(ctx, db.Transaction{
+		// Persist the CP-chosen GUID (or the synthesized fallback)
+		// as the row's primary key so a later Ended event with
+		// the same transactionId matches the row and can update
+		// it to "stopped". Without this the repo would mint a
+		// fresh UUID and the Stop call would 0-row-update.
+		ID:              txID,
 		NumericID:       nil, // 2.0.1: no async numeric assignment
 		ChargePointID:   in.ChargePointID,
 		EVSEID:          in.EVSEID,

@@ -116,20 +116,35 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // --- business decisions: Authorize / StartTransaction / StopTransaction ---
 
+// authorizeReq is the 1.6J Authorize.req shape. The 2.0.1
+// version uses a structured {idToken: {idToken, type}} object
+// instead of the flat idTag string. handleAuthorize decodes
+// either form into the same internal view (an idTag string) so
+// the auth policy is the same on both versions.
 type authorizeReq struct {
-	IDTag string `json:"idTag"`
+	IDTag   string `json:"idTag"`
+	IDToken *struct {
+		IDToken string `json:"idToken"`
+		Type    string `json:"type"`
+	} `json:"idToken,omitempty"`
 }
 
 type authorizeResp struct {
-	IDTagInfo struct {
+	IDTokenInfo *struct {
 		Status string `json:"status"`
-	} `json:"idTagInfo"`
+	} `json:"idTokenInfo,omitempty"`
+	IDTagInfo *struct {
+		Status string `json:"status"`
+	} `json:"idTagInfo,omitempty"`
 }
 
-// handleAuthorize decides whether the idTag is accepted. For MVP
-// the policy is hard-coded: any non-empty idTag is Accepted. The
-// processor forwards the returned payload as the OCPP
-// Authorize.conf body.
+// handleAuthorize decides whether the idTag/idToken is accepted.
+// For MVP the policy is hard-coded: any non-empty token is
+// Accepted. The processor forwards the returned payload as the
+// OCPP Authorize.conf body. 1.6J: response is
+// {idTagInfo:{status}}; 2.0.1: response is
+// {idTokenInfo:{status}}. The negotiated version is taken from
+// the envelope's "version" field (defaults to 1.6J).
 func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	var req envelope
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -141,12 +156,25 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if authReq.IDTag == "" {
-		writeError(w, http.StatusBadRequest, "idTag is required")
+	idTag := authReq.IDTag
+	if idTag == "" && authReq.IDToken != nil {
+		idTag = authReq.IDToken.IDToken
+	}
+	if idTag == "" {
+		writeError(w, http.StatusBadRequest, "idTag (or idToken.idToken) is required")
 		return
 	}
+	version := req.envelopeVersion()
 	resp := authorizeResp{}
-	resp.IDTagInfo.Status = "Accepted"
+	if version == "2.0.1" {
+		resp.IDTokenInfo = &struct {
+			Status string `json:"status"`
+		}{Status: "Accepted"}
+	} else {
+		resp.IDTagInfo = &struct {
+			Status string `json:"status"`
+		}{Status: "Accepted"}
+	}
 	if err := s.recordRuntimeEvent(r.Context(), &req.ChargePointID, "transaction.authorized", "info", "idTag accepted"); err != nil {
 		log.Printf("[ocpp-core/api] runtime event: %v", err)
 	}

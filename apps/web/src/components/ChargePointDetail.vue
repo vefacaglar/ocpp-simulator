@@ -37,6 +37,16 @@ function handleAuthorize(connectorId: number) {
   }
   store.authorizeConnector(connectorId, idTag.trim())
 }
+
+const ocppVersion = computed(() => store.selectedDetail?.chargePoint.ocppVersion ?? '1.6J')
+
+// activeTransactionFor returns a snapshot of the transaction
+// state for the given connector, if any. Both 1.6J (numeric
+// id) and 2.0.1 (string GUID) surface uniformly: the
+// transactionId is rendered as-is.
+function activeTransactionFor(connectorId: number) {
+  return store.activeTransactionFor(connectorId)
+}
 </script>
 
 <template>
@@ -129,6 +139,20 @@ function handleAuthorize(connectorId: number) {
                 <button class="btn btn-danger-soft" @click="store.stopConnectorTransaction(c.connectorNumber)">Stop</button>
                 <button class="btn" @click="store.sendConnectorMeterValues(c.connectorNumber)">MeterValues</button>
                 <button class="btn btn-danger-soft" @click="store.setConnectorStatus(c.connectorNumber, 'Faulted')">Fault</button>
+                <div class="connector-meta">
+                  <span class="kv-inline">
+                    <span class="kv-label">tx:</span>
+                    <span class="kv-value">{{ activeTransactionFor(c.connectorNumber)?.transactionId ?? '—' }}</span>
+                  </span>
+                  <span v-if="ocppVersion === '2.0.1'" class="kv-inline">
+                    <span class="kv-label">evseId:</span>
+                    <span class="kv-value">{{ c.evseId }}</span>
+                  </span>
+                  <span v-if="ocppVersion === '2.0.1'" class="kv-inline">
+                    <span class="kv-label">seqNo:</span>
+                    <span class="kv-value">{{ activeTransactionFor(c.connectorNumber)?.seqNo ?? '—' }}</span>
+                  </span>
+                </div>
               </div>
 
               <!-- Finishing: Unplug -->
@@ -411,6 +435,31 @@ function handleAuthorize(connectorId: number) {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.connector-meta {
+  display: flex;
+  gap: 10px;
+  flex-basis: 100%;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.kv-inline {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
+}
+
+.kv-inline .kv-label {
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.kv-inline .kv-value {
+  color: var(--text-primary);
 }
 
 .connector-actions-col {

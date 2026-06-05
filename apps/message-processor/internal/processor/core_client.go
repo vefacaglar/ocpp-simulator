@@ -15,26 +15,32 @@ import (
 // business decisions (Authorize, StartTransaction, StopTransaction,
 // TransactionEvent). The HTTP implementation lives in HTTPCoreClient;
 // tests provide a fake.
+//
+// Every method carries the OCPP version string ("1.6J" or "2.0.1")
+// negotiated by the gateway at the WebSocket subprotocol handshake
+// and read off the MQTT topic segment. ocpp-core's
+// /internal/transactions/* endpoints use the version to pick the
+// right response shape (idTagInfo for 1.6J, idTokenInfo for 2.0.1).
 type CoreClient interface {
-	// Authorize asks the core whether the given idTag is
+	// Authorize asks the core whether the given idTag/idToken is
 	// accepted. Returns the response payload bytes the processor
 	// will use as the Authorize.conf body.
-	Authorize(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error)
+	Authorize(ctx context.Context, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error)
 	// StartTransaction asks the core to begin a transaction and
 	// return the CALLRESULT payload (containing transactionId and
 	// idTagInfo).
-	StartTransaction(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error)
+	StartTransaction(ctx context.Context, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error)
 	// StopTransaction asks the core to end a transaction. Payload
 	// is the .req body from the CP. The returned payload becomes
 	// the .conf body.
-	StopTransaction(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error)
+	StopTransaction(ctx context.Context, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error)
 	// TransactionEvent asks the core to handle a 2.0.1
 	// TransactionEvent.req. The eventType (Started/Updated/Ended)
 	// drives the core's decision: Started creates a transaction
 	// row with the CP-chosen transactionId, Ended finalizes it.
 	// The returned payload is the .conf body, which carries
 	// idTokenInfo and (optionally) updatedPersonalMessage.
-	TransactionEvent(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error)
+	TransactionEvent(ctx context.Context, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error)
 }
 
 // HTTPCoreClient implements CoreClient over HTTP. The endpoint
@@ -57,6 +63,7 @@ func NewHTTPCoreClient(baseURL string) *HTTPCoreClient {
 
 type coreEnvelope struct {
 	ChargePointID string          `json:"chargePointId"`
+	Version       string          `json:"version,omitempty"`
 	Payload       json.RawMessage `json:"payload"`
 }
 
@@ -64,8 +71,8 @@ type coreEnvelope struct {
 // returns the response body bytes. Non-2xx responses and network
 // errors are surfaced as ErrCoreUnavailable so the handler can emit a
 // GenericError CALLERROR.
-func (c *HTTPCoreClient) doPOST(ctx context.Context, path, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
-	env := coreEnvelope{ChargePointID: chargePointID, Payload: payload}
+func (c *HTTPCoreClient) doPOST(ctx context.Context, path, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error) {
+	env := coreEnvelope{ChargePointID: chargePointID, Version: version, Payload: payload}
 	body, err := json.Marshal(env)
 	if err != nil {
 		return nil, fmt.Errorf("marshal envelope: %w", err)
@@ -90,20 +97,20 @@ func (c *HTTPCoreClient) doPOST(ctx context.Context, path, chargePointID string,
 	return respBody, nil
 }
 
-func (c *HTTPCoreClient) Authorize(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
-	return c.doPOST(ctx, "/internal/transactions/authorize", chargePointID, payload)
+func (c *HTTPCoreClient) Authorize(ctx context.Context, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error) {
+	return c.doPOST(ctx, "/internal/transactions/authorize", chargePointID, version, payload)
 }
 
-func (c *HTTPCoreClient) StartTransaction(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
-	return c.doPOST(ctx, "/internal/transactions/start", chargePointID, payload)
+func (c *HTTPCoreClient) StartTransaction(ctx context.Context, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error) {
+	return c.doPOST(ctx, "/internal/transactions/start", chargePointID, version, payload)
 }
 
-func (c *HTTPCoreClient) StopTransaction(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
-	return c.doPOST(ctx, "/internal/transactions/stop", chargePointID, payload)
+func (c *HTTPCoreClient) StopTransaction(ctx context.Context, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error) {
+	return c.doPOST(ctx, "/internal/transactions/stop", chargePointID, version, payload)
 }
 
-func (c *HTTPCoreClient) TransactionEvent(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
-	return c.doPOST(ctx, "/internal/transactions/event", chargePointID, payload)
+func (c *HTTPCoreClient) TransactionEvent(ctx context.Context, chargePointID, version string, payload json.RawMessage) (json.RawMessage, error) {
+	return c.doPOST(ctx, "/internal/transactions/event", chargePointID, version, payload)
 }
 
 // corePayload extracts the .payload field from a coreEnvelope response

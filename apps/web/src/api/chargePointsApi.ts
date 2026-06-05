@@ -84,6 +84,6 @@ export async function deleteConnector(chargePointId: string, connectorId: number
 export async function fetchVersions(): Promise<{ version: string; label: string; status: string }[]> {
   return [
     { version: '1.6J', label: 'OCPP 1.6J', status: 'enabled' },
-    { version: '2.0.1', label: 'OCPP 2.0.1', status: 'planned' },
+    { version: '2.0.1', label: 'OCPP 2.0.1', status: 'enabled' },
   ]
 }

@@ -52,7 +52,7 @@ type coreCall struct {
 	Payload       json.RawMessage
 }
 
-func (c *fakeCore) Authorize(_ context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
+func (c *fakeCore) Authorize(_ context.Context, chargePointID, _ string, payload json.RawMessage) (json.RawMessage, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.authorizeCalls = append(c.authorizeCalls, coreCall{ChargePointID: chargePointID, Payload: payload})
@@ -67,7 +67,7 @@ func (c *fakeCore) Authorize(_ context.Context, chargePointID string, payload js
 	return wrapInCoreEnvelope(json.RawMessage(`{"idTagInfo":{"status":"Accepted"}}`))
 }
 
-func (c *fakeCore) StartTransaction(_ context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
+func (c *fakeCore) StartTransaction(_ context.Context, chargePointID, _ string, payload json.RawMessage) (json.RawMessage, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.startTransactionCalls = append(c.startTransactionCalls, coreCall{ChargePointID: chargePointID, Payload: payload})
@@ -80,7 +80,7 @@ func (c *fakeCore) StartTransaction(_ context.Context, chargePointID string, pay
 	return wrapInCoreEnvelope(json.RawMessage(`{"transactionId":42,"idTagInfo":{"status":"Accepted"}}`))
 }
 
-func (c *fakeCore) StopTransaction(_ context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
+func (c *fakeCore) StopTransaction(_ context.Context, chargePointID, _ string, payload json.RawMessage) (json.RawMessage, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.stopTransactionCalls = append(c.stopTransactionCalls, coreCall{ChargePointID: chargePointID, Payload: payload})
@@ -93,7 +93,7 @@ func (c *fakeCore) StopTransaction(_ context.Context, chargePointID string, payl
 	return wrapInCoreEnvelope(json.RawMessage(`{"idTagInfo":{"status":"Accepted"}}`))
 }
 
-func (c *fakeCore) TransactionEvent(_ context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
+func (c *fakeCore) TransactionEvent(_ context.Context, chargePointID, _ string, payload json.RawMessage) (json.RawMessage, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.transactionEventCalls = append(c.transactionEventCalls, coreCall{ChargePointID: chargePointID, Payload: payload})

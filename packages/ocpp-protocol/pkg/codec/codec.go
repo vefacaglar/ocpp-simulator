@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/message"
 )
 
 type Codec struct{}

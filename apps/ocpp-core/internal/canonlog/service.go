@@ -13,10 +13,10 @@ import (
 	"log"
 	"strings"
 
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/broker"
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/db"
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/broker"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/db"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/message"
 )
 
 const (

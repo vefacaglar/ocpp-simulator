@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
-	v16 "github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/v16"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	v16 "github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/v16"
 )
 
 // callFrame is a small helper to build a raw OCPP-J CALL array

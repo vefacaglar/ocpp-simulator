@@ -21,9 +21,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/csms"
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/db"
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/transaction"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/csms"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/db"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/transaction"
 )
 
 // envelope is the request/response shape used by every

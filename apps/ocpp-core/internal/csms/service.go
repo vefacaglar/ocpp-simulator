@@ -20,10 +20,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/broker"
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
-	ocppschemas "github.com/user/ocpp-simulator/packages/ocpp-schemas"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/broker"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	ocppschemas "github.com/vefacaglar/ocpp-simulator/packages/ocpp-schemas"
 )
 
 // Service produces CSMS-initiated CALL frames and publishes them to

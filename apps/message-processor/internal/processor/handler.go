@@ -8,10 +8,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
-	ocppschemas "github.com/user/ocpp-simulator/packages/ocpp-schemas"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
+	ocppschemas "github.com/vefacaglar/ocpp-simulator/packages/ocpp-schemas"
 )
 
 // Handler is the response-producing logic of the processor. It owns

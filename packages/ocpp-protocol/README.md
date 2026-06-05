@@ -13,7 +13,7 @@ Public packages:
 
 Multi-version readiness is satisfied by the version string returned by each `Protocol` and the `Factory` registration pattern: `main()` registers the versions it supports at startup.
 
-The package depends only on `github.com/user/ocpp-simulator/packages/ocpp-schemas` indirectly (test-only). No DB, no MQTT, no HTTP — the only side effects are JSON encoding and time/random for unique IDs.
+The package depends only on `github.com/vefacaglar/ocpp-simulator/packages/ocpp-schemas` indirectly (test-only). No DB, no MQTT, no HTTP — the only side effects are JSON encoding and time/random for unique IDs.
 
 Run tests:
 

@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/user/ocpp-simulator/apps/ocpp-gateway/internal/gateway"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-gateway/internal/gateway"
 )
 
 func main() {

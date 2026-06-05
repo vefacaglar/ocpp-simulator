@@ -1,4 +1,4 @@
-module github.com/user/ocpp-simulator/packages/ocpp-schemas
+module github.com/vefacaglar/ocpp-simulator/packages/ocpp-schemas
 
 go 1.26.3
 

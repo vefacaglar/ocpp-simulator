@@ -10,7 +10,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/db"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/db"
 )
 
 // Service is the transaction lifecycle owner.

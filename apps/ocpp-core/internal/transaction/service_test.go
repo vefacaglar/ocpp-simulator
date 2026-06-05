@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/db"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/db"
 )
 
 func newSvc(t *testing.T) (*Service, *db.TransactionRepo, func()) {

@@ -1,4 +1,4 @@
-module github.com/user/ocpp-simulator/apps/ocpp-gateway
+module github.com/vefacaglar/ocpp-simulator/apps/ocpp-gateway
 
 go 1.26.3
 

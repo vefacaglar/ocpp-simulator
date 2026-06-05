@@ -9,12 +9,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/api"
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/broker"
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/canonlog"
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/csms"
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/db"
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/transaction"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/api"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/broker"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/canonlog"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/csms"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/db"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/transaction"
 )
 
 func main() {

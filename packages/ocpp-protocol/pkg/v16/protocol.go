@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
 )
 
 type Protocol struct {

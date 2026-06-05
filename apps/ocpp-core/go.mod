@@ -1,4 +1,4 @@
-module github.com/user/ocpp-simulator/apps/ocpp-core
+module github.com/vefacaglar/ocpp-simulator/apps/ocpp-core
 
 go 1.26.3
 
@@ -7,8 +7,8 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/pressly/goose/v3 v3.27.1
-	github.com/user/ocpp-simulator/packages/ocpp-protocol v0.0.0
-	github.com/user/ocpp-simulator/packages/ocpp-schemas v0.0.0
+	github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol v0.0.0
+	github.com/vefacaglar/ocpp-simulator/packages/ocpp-schemas v0.0.0
 )
 
 require (
@@ -25,6 +25,6 @@ require (
 	golang.org/x/text v0.36.0 // indirect
 )
 
-replace github.com/user/ocpp-simulator/packages/ocpp-protocol => ../../packages/ocpp-protocol
+replace github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol => ../../packages/ocpp-protocol
 
-replace github.com/user/ocpp-simulator/packages/ocpp-schemas => ../../packages/ocpp-schemas
+replace github.com/vefacaglar/ocpp-simulator/packages/ocpp-schemas => ../../packages/ocpp-schemas

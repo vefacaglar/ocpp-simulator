@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/message"
 )
 
 type Protocol interface {

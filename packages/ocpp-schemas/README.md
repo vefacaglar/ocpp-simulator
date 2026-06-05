@@ -2,7 +2,7 @@
 
 Go module holding the **official OCPP JSON schemas** plus a validator. These schemas are the single source of truth for the strict-compliance rule: code conforms to them, never the other way around (`AGENTS.md` → Hard rule).
 
-Import path: `github.com/user/ocpp-simulator/packages/ocpp-schemas` (package `ocppschemas`).
+Import path: `github.com/vefacaglar/ocpp-simulator/packages/ocpp-schemas` (package `ocppschemas`).
 
 ## What's here
 

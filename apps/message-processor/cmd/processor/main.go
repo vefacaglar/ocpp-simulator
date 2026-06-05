@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/user/ocpp-simulator/apps/message-processor/internal/processor"
-	v16 "github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/v16"
+	"github.com/vefacaglar/ocpp-simulator/apps/message-processor/internal/processor"
+	v16 "github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/v16"
 )
 
 func main() {

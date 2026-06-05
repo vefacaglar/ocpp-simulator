@@ -9,9 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/csms"
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/db"
-	"github.com/user/ocpp-simulator/apps/ocpp-core/internal/transaction"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/csms"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/db"
+	"github.com/vefacaglar/ocpp-simulator/apps/ocpp-core/internal/transaction"
 )
 
 // fakeBroker captures Publish for assertions.

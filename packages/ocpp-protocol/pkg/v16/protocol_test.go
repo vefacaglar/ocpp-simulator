@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/message"
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
-	ocppschemas "github.com/user/ocpp-simulator/packages/ocpp-schemas"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/message"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
+	ocppschemas "github.com/vefacaglar/ocpp-simulator/packages/ocpp-schemas"
 )
 
 func TestBuildBootNotification_SchemaValid(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/user/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
 )
 
 func TestProtocol_Version(t *testing.T) {

@@ -2,10 +2,14 @@
 // point sessions. It does not parse OCPP frames, does not own
 // business state, and does not persist anything. Inbound raw OCPP-J
 // text frames from ws://gateway/ws/{chargePointId} are published
-// unchanged to MQTT topic ocpp/{chargePointId}/in. MQTT messages
-// received on ocpp/{chargePointId}/out are written unchanged back to
-// that charge point's WebSocket. Per-CP connection isolation is
-// enforced by a registry keyed by chargePointId.
+// unchanged to MQTT topic ocpp/{version}/{chargePointId}/in. MQTT
+// messages received on ocpp/{version}/{chargePointId}/out are
+// written unchanged back to that charge point's WebSocket. The
+// version segment is added by the gateway at the WebSocket
+// subprotocol handshake boundary (multi-version plan §3): the
+// gateway is the only component that sees the handshake, so it is
+// the correct place to discover the version. Per-CP connection
+// isolation is enforced by a registry keyed by chargePointId.
 package gateway
 
 import (
@@ -15,17 +19,20 @@ import (
 
 // InTopic is the MQTT topic for frames sent by a charge point to the
 // server. Outbound from the gateway's perspective, inbound from the
-// simulated CP's perspective. Centralized so tests assert on the
-// exact topic format.
-func InTopic(chargePointID string) string {
-	return "ocpp/" + chargePointID + "/in"
+// simulated CP's perspective. The version segment is a topic
+// separator (broker-agnostic, MQTT 3.1.1 compatible) so the
+// message-processor and canonlog can pick a schema set by
+// subscription pattern. The payload stays a raw OCPP-J array
+// (multi-version plan: never wrap).
+func InTopic(version, chargePointID string) string {
+	return "ocpp/" + version + "/" + chargePointID + "/in"
 }
 
 // OutTopic is the MQTT topic for frames the server sends back to a
 // charge point. Inbound from the gateway's perspective, outbound
 // from the server's perspective.
-func OutTopic(chargePointID string) string {
-	return "ocpp/" + chargePointID + "/out"
+func OutTopic(version, chargePointID string) string {
+	return "ocpp/" + version + "/" + chargePointID + "/out"
 }
 
 // Gateway wires a Broker and a Registry together. It exposes the
@@ -54,12 +61,13 @@ func New(broker Broker) (*Gateway, error) {
 // If a previous connection for the same charge point id is still
 // registered, the registry gracefully closes the old connection and
 // replaces it with this new one, enforcing a single active session.
-func (g *Gateway) Connect(chargePointID string) (*Connection, error) {
+func (g *Gateway) Connect(version, chargePointID string) (*Connection, error) {
 	conn := &Connection{
 		ChargePointID: chargePointID,
+		Version:       version,
 	}
 
-	unsubscribe, err := g.Broker.Subscribe(OutTopic(chargePointID), func(payload []byte) {
+	unsubscribe, err := g.Broker.Subscribe(OutTopic(version, chargePointID), func(payload []byte) {
 		// Re-lookup so a late delivery after Disconnect cannot
 		// write into a closed channel.
 		if c, ok := g.Registry.Lookup(chargePointID); ok {
@@ -70,24 +78,24 @@ func (g *Gateway) Connect(chargePointID string) (*Connection, error) {
 		}
 	})
 	if err != nil {
-		return nil, fmt.Errorf("subscribe %s: %w", OutTopic(chargePointID), err)
+		return nil, fmt.Errorf("subscribe %s: %w", OutTopic(version, chargePointID), err)
 	}
 	conn.Unsubscribe = unsubscribe
 
 	g.Registry.Register(conn)
 
-	log.Printf("[ocpp-gateway] connected charge point %s", chargePointID)
+	log.Printf("[ocpp-gateway] connected charge point %s (version=%s)", chargePointID, version)
 	return conn, nil
 }
 
 // PublishInbound sends a frame received from the CP's WebSocket to
 // the broker on the /in topic. Bytes are forwarded unchanged; this
 // method does not parse OCPP.
-func (g *Gateway) PublishInbound(chargePointID string, payload []byte) error {
+func (g *Gateway) PublishInbound(version, chargePointID string, payload []byte) error {
 	if _, ok := g.Registry.Lookup(chargePointID); !ok {
 		return ErrNoSuchChargePoint
 	}
-	return g.Broker.Publish(InTopic(chargePointID), payload)
+	return g.Broker.Publish(InTopic(version, chargePointID), payload)
 }
 
 // Disconnect tears down a charge point: removes from registry,

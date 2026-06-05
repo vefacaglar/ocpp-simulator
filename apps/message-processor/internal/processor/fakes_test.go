@@ -34,14 +34,17 @@ type fakeCore struct {
 	authorizeCalls       []coreCall
 	startTransactionCalls []coreCall
 	stopTransactionCalls  []coreCall
+	transactionEventCalls []coreCall
 
 	authorizeResp       json.RawMessage
 	startTransactionResp json.RawMessage
 	stopTransactionResp  json.RawMessage
+	transactionEventResp json.RawMessage
 
 	failAuthorize       bool
 	failStartTransaction bool
 	failStopTransaction  bool
+	failTransactionEvent bool
 }
 
 type coreCall struct {
@@ -88,6 +91,19 @@ func (c *fakeCore) StopTransaction(_ context.Context, chargePointID string, payl
 		return wrapInCoreEnvelope(c.stopTransactionResp)
 	}
 	return wrapInCoreEnvelope(json.RawMessage(`{"idTagInfo":{"status":"Accepted"}}`))
+}
+
+func (c *fakeCore) TransactionEvent(_ context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.transactionEventCalls = append(c.transactionEventCalls, coreCall{ChargePointID: chargePointID, Payload: payload})
+	if c.failTransactionEvent {
+		return nil, ErrCoreUnavailable
+	}
+	if c.transactionEventResp != nil {
+		return wrapInCoreEnvelope(c.transactionEventResp)
+	}
+	return wrapInCoreEnvelope(json.RawMessage(`{"idTokenInfo":{"status":"Accepted"}}`))
 }
 
 func wrapInCoreEnvelope(payload json.RawMessage) (json.RawMessage, error) {

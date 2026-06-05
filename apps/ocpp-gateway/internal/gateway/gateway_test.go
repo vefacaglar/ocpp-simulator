@@ -16,7 +16,7 @@ func TestGateway_PublishInbound_RawBytesUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if _, err := g.Connect("CP-001"); err != nil {
+	if _, err := g.Connect("1.6J", "CP-001"); err != nil {
 		t.Fatalf("Connect CP-001: %v", err)
 	}
 
@@ -25,51 +25,63 @@ func TestGateway_PublishInbound_RawBytesUnchanged(t *testing.T) {
 	// re-marshaled, this would change.
 	original := []byte("[2,  \"uid-1\" ,\"BootNotification\" ,{ \"chargePointVendor\" : \"V\" , \"chargePointModel\":\"M\"} ]\n")
 
-	if err := g.PublishInbound("CP-001", original); err != nil {
+	if err := g.PublishInbound("1.6J", "CP-001", original); err != nil {
 		t.Fatalf("PublishInbound: %v", err)
 	}
 
-	got := broker.publishedOn(InTopic("CP-001"))
+	got := broker.publishedOn(InTopic("1.6J", "CP-001"))
 	if len(got) != 1 {
-		t.Fatalf("expected 1 published frame on %s, got %d", InTopic("CP-001"), len(got))
+		t.Fatalf("expected 1 published frame on %s, got %d", InTopic("1.6J", "CP-001"), len(got))
 	}
 	if !bytes.Equal(got[0], original) {
 		t.Errorf("frame bytes mutated by gateway:\nwant=%q\ngot =%q", original, got[0])
 	}
 }
 
-// Test 2 — topic format. Both in and out topics use the exact format
-// ocpp/{cpId}/in and ocpp/{cpId}/out.
+// Test 2 — topic format. Both in and out topics use the versioned
+// format ocpp/{version}/{cpId}/in and ocpp/{version}/{cpId}/out
+// (multi-version plan §3). The version is a topic segment so the
+// message-processor and canonlog can pick a schema set by
+// subscription pattern, and the broker is broker-agnostic
+// (works on MQTT 3.1.1 without user-property hacks).
 func TestGateway_TopicFormat(t *testing.T) {
-	if got := InTopic("CP-007"); got != "ocpp/CP-007/in" {
-		t.Errorf("InTopic = %q, want %q", got, "ocpp/CP-007/in")
+	if got := InTopic("1.6J", "CP-007"); got != "ocpp/1.6J/CP-007/in" {
+		t.Errorf("InTopic = %q, want %q", got, "ocpp/1.6J/CP-007/in")
 	}
-	if got := OutTopic("CP-007"); got != "ocpp/CP-007/out" {
-		t.Errorf("OutTopic = %q, want %q", got, "ocpp/CP-007/out")
+	if got := OutTopic("1.6J", "CP-007"); got != "ocpp/1.6J/CP-007/out" {
+		t.Errorf("OutTopic = %q, want %q", got, "ocpp/1.6J/CP-007/out")
+	}
+	if got := InTopic("2.0.1", "CP-007"); got != "ocpp/2.0.1/CP-007/in" {
+		t.Errorf("InTopic v201 = %q, want %q", got, "ocpp/2.0.1/CP-007/in")
+	}
+	if got := OutTopic("2.0.1", "CP-007"); got != "ocpp/2.0.1/CP-007/out" {
+		t.Errorf("OutTopic v201 = %q, want %q", got, "ocpp/2.0.1/CP-007/out")
 	}
 	// Confirm Connect subscribes to the matching out topic.
 	broker := newFakeBroker()
 	g, _ := New(broker)
-	if _, err := g.Connect("CP-007"); err != nil {
+	if _, err := g.Connect("1.6J", "CP-007"); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	if got := broker.subscriberCount(OutTopic("CP-007")); got != 1 {
-		t.Errorf("expected 1 subscriber on %s, got %d", OutTopic("CP-007"), got)
+	if got := broker.subscriberCount(OutTopic("1.6J", "CP-007")); got != 1 {
+		t.Errorf("expected 1 subscriber on %s, got %d", OutTopic("1.6J", "CP-007"), got)
 	}
 }
 
 // Test 3 — per-CP isolation. Two CPs must not share Outbound channels
 // or subscriptions. A frame delivered on CP-A's /out must reach only
-// CP-A's outbound channel.
+// CP-A's outbound channel. Mixed versions on the same broker are
+// allowed (CP-A on 1.6J, CP-B on 2.0.1); the version segment
+// disambiguates them.
 func TestGateway_PerCPIsolation(t *testing.T) {
 	broker := newFakeBroker()
 	g, _ := New(broker)
 
-	cpA, err := g.Connect("CP-A")
+	cpA, err := g.Connect("1.6J", "CP-A")
 	if err != nil {
 		t.Fatalf("Connect CP-A: %v", err)
 	}
-	cpB, err := g.Connect("CP-B")
+	cpB, err := g.Connect("2.0.1", "CP-B")
 	if err != nil {
 		t.Fatalf("Connect CP-B: %v", err)
 	}
@@ -89,7 +101,7 @@ func TestGateway_PerCPIsolation(t *testing.T) {
 	// Fire a frame on CP-A's out topic; CP-B's channel must stay
 	// empty. Use a buffered channel + non-blocking receive so a
 	// bug (broadcast to all CPs) is observable.
-	broker.deliver(OutTopic("CP-A"), []byte("only-for-A"))
+	broker.deliver(OutTopic("1.6J", "CP-A"), []byte("only-for-A"))
 
 	select {
 	case got := <-cpA.Outbound:
@@ -108,7 +120,7 @@ func TestGateway_PerCPIsolation(t *testing.T) {
 	}
 
 	// Symmetric check.
-	broker.deliver(OutTopic("CP-B"), []byte("only-for-B"))
+	broker.deliver(OutTopic("2.0.1", "CP-B"), []byte("only-for-B"))
 	select {
 	case got := <-cpB.Outbound:
 		if string(got) != "only-for-B" {
@@ -132,12 +144,12 @@ func TestGateway_Connect_ReplacesExisting(t *testing.T) {
 	broker := newFakeBroker()
 	g, _ := New(broker)
 
-	first, err := g.Connect("CP-DUP")
+	first, err := g.Connect("1.6J", "CP-DUP")
 	if err != nil {
 		t.Fatalf("first Connect: %v", err)
 	}
 
-	second, err := g.Connect("CP-DUP")
+	second, err := g.Connect("1.6J", "CP-DUP")
 	if err != nil {
 		t.Fatalf("second Connect: %v", err)
 	}
@@ -155,7 +167,7 @@ func TestGateway_Connect_ReplacesExisting(t *testing.T) {
 	}
 
 	// The new connection should receive messages.
-	broker.deliver(OutTopic("CP-DUP"), []byte("new-session-alive"))
+	broker.deliver(OutTopic("1.6J", "CP-DUP"), []byte("new-session-alive"))
 	select {
 	case got := <-second.Outbound:
 		if string(got) != "new-session-alive" {
@@ -172,7 +184,7 @@ func TestGateway_Connect_ReplacesExisting(t *testing.T) {
 func TestGateway_Disconnect_TearsDown(t *testing.T) {
 	broker := newFakeBroker()
 	g, _ := New(broker)
-	cp, err := g.Connect("CP-X")
+	cp, err := g.Connect("1.6J", "CP-X")
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -182,7 +194,7 @@ func TestGateway_Disconnect_TearsDown(t *testing.T) {
 	if _, ok := g.Registry.Lookup("CP-X"); ok {
 		t.Error("Disconnect did not remove CP-X from registry")
 	}
-	if got := broker.subscriberCount(OutTopic("CP-X")); got != 0 {
+	if got := broker.subscriberCount(OutTopic("1.6J", "CP-X")); got != 0 {
 		t.Errorf("Disconnect did not unsubscribe from /out: %d handlers remain", got)
 	}
 	select {
@@ -210,11 +222,11 @@ func TestGateway_PublishInbound_UnknownCP(t *testing.T) {
 	broker := newFakeBroker()
 	g, _ := New(broker)
 
-	err := g.PublishInbound("CP-DOES-NOT-EXIST", []byte("ignored"))
+	err := g.PublishInbound("1.6J", "CP-DOES-NOT-EXIST", []byte("ignored"))
 	if !errors.Is(err, ErrNoSuchChargePoint) {
 		t.Errorf("expected ErrNoSuchChargePoint, got %v", err)
 	}
-	if got := broker.publishedOn(InTopic("CP-DOES-NOT-EXIST")); len(got) != 0 {
+	if got := broker.publishedOn(InTopic("1.6J", "CP-DOES-NOT-EXIST")); len(got) != 0 {
 		t.Errorf("unknown CP must not publish anything; got %d", len(got))
 	}
 }
@@ -224,7 +236,7 @@ func TestGateway_PublishInbound_UnknownCP(t *testing.T) {
 func TestGateway_LateOutboundDelivery_NoPanic(t *testing.T) {
 	broker := newFakeBroker()
 	g, _ := New(broker)
-	cp, err := g.Connect("CP-LATE")
+	cp, err := g.Connect("1.6J", "CP-LATE")
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -236,7 +248,7 @@ func TestGateway_LateOutboundDelivery_NoPanic(t *testing.T) {
 	// before Unsubscribe completed. We simulate that by capturing
 	// the closure now and calling it after Disconnect.
 	broker.mu.Lock()
-	ids := broker.byTopic[OutTopic("CP-LATE")]
+	ids := broker.byTopic[OutTopic("1.6J", "CP-LATE")]
 	if len(ids) != 1 {
 		broker.mu.Unlock()
 		t.Fatalf("expected 1 subscription before disconnect, got %d", len(ids))
@@ -288,6 +300,35 @@ func TestExtractChargePointID_RejectsBadPaths(t *testing.T) {
 	for _, c := range cases {
 		if got := extractChargePointID(c.path); got != c.want {
 			t.Errorf("extractChargePointID(%q) = %q, want %q", c.path, got, c.want)
+		}
+	}
+}
+
+// Test 9 — subprotocol token mapping. The WebSocket subprotocol
+// selected by the client is the version discovery mechanism
+// (multi-version plan §3). The mapping must be bijective: the
+// gateway accepts ocpp1.6 and ocpp2.0.1, and any other token
+// (including the empty string for "no subprotocol") is rejected
+// before the upgrade completes.
+func TestSubprotocolToVersion(t *testing.T) {
+	cases := []struct {
+		subproto string
+		want     string
+		wantOK   bool
+	}{
+		{"ocpp1.6", "1.6J", true},
+		{"ocpp2.0.1", "2.0.1", true},
+		{"", "", false},              // no subprotocol: spec-illegal
+		{"soap", "", false},           // wrong protocol family
+		{"OCPP1.6", "", false},        // case-sensitive
+		{"ocpp1.6j", "", false},       // non-canonical
+		{"ocpp2.0", "", false},        // missing .1
+	}
+	for _, c := range cases {
+		got, ok := subprotocolToVersion(c.subproto)
+		if got != c.want || ok != c.wantOK {
+			t.Errorf("subprotocolToVersion(%q) = (%q, %v), want (%q, %v)",
+				c.subproto, got, ok, c.want, c.wantOK)
 		}
 	}
 }

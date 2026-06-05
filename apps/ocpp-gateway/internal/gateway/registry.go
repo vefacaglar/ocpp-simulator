@@ -12,6 +12,12 @@ import (
 // WS is already gone.
 type Connection struct {
 	ChargePointID string
+	// Version is the OCPP version the charge point negotiated at
+	// the WebSocket subprotocol handshake (ocpp1.6 -> "1.6J",
+	// ocpp2.0.1 -> "2.0.1"). The gateway uses it to build the
+	// MQTT topic segment so the message-processor and canonlog
+	// can route and validate per version.
+	Version       string
 	Unsubscribe   func()
 	Outbound      chan []byte
 	CloseOnce     sync.Once

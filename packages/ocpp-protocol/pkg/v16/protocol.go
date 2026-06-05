@@ -1,7 +1,11 @@
-// Package v16 implements the OCPP 1.6J protocol. It is the only place that
-// knows 1.6J-specific wire field names, casing, enums, and the integer
-// transactionId model. It produces raw [2, uid, action, payload] CALL frames
-// via codec and accepts matching CALL/CALLRESULT/CALLERROR frames back.
+// Package v16 implements the OCPP 1.6J protocol. It is the only
+// place that knows 1.6J-specific wire field names, casing, enums,
+// and the integer transactionId model. It produces raw
+// [2, uid, action, payload] CALL frames via the codec and accepts
+// matching CALL/CALLRESULT/CALLERROR frames back. v16 implements
+// the Base + LegacyTransaction + LegacyConfig + RemoteControl +
+// LegacyRemoteTx capability interfaces from
+// packages/ocpp-protocol/pkg/protocol.
 package v16
 
 import (
@@ -24,8 +28,20 @@ func NewProtocol() *Protocol {
 }
 
 func (p *Protocol) Version() string {
-	return "1.6J"
+	return protocol.Version1_6
 }
+
+// Compile-time assertions: v16 implements only the legacy
+// capability set. It does NOT implement TransactionEventProtocol
+// (that is 2.0.1-only) or VariableProtocol (Get/SetVariables is
+// 2.0.1-only) or RemoteTxProtocol (2.0.1-only).
+var (
+	_ protocol.BaseProtocol           = (*Protocol)(nil)
+	_ protocol.LegacyTransactionProtocol = (*Protocol)(nil)
+	_ protocol.LegacyConfigProtocol   = (*Protocol)(nil)
+	_ protocol.RemoteControlProtocol  = (*Protocol)(nil)
+	_ protocol.LegacyRemoteTxProtocol = (*Protocol)(nil)
+)
 
 func (p *Protocol) BuildBootNotification(ctx context.Context, input protocol.BootNotificationInput) (message.Message, error) {
 	payload := struct {

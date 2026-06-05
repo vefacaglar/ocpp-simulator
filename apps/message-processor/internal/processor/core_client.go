@@ -12,9 +12,9 @@ import (
 )
 
 // CoreClient is the interface the processor uses to ask ocpp-core for
-// business decisions (Authorize, StartTransaction, StopTransaction).
-// The HTTP implementation lives in HTTPCoreClient; tests provide a
-// fake.
+// business decisions (Authorize, StartTransaction, StopTransaction,
+// TransactionEvent). The HTTP implementation lives in HTTPCoreClient;
+// tests provide a fake.
 type CoreClient interface {
 	// Authorize asks the core whether the given idTag is
 	// accepted. Returns the response payload bytes the processor
@@ -28,6 +28,13 @@ type CoreClient interface {
 	// is the .req body from the CP. The returned payload becomes
 	// the .conf body.
 	StopTransaction(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error)
+	// TransactionEvent asks the core to handle a 2.0.1
+	// TransactionEvent.req. The eventType (Started/Updated/Ended)
+	// drives the core's decision: Started creates a transaction
+	// row with the CP-chosen transactionId, Ended finalizes it.
+	// The returned payload is the .conf body, which carries
+	// idTokenInfo and (optionally) updatedPersonalMessage.
+	TransactionEvent(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error)
 }
 
 // HTTPCoreClient implements CoreClient over HTTP. The endpoint
@@ -93,6 +100,10 @@ func (c *HTTPCoreClient) StartTransaction(ctx context.Context, chargePointID str
 
 func (c *HTTPCoreClient) StopTransaction(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
 	return c.doPOST(ctx, "/internal/transactions/stop", chargePointID, payload)
+}
+
+func (c *HTTPCoreClient) TransactionEvent(ctx context.Context, chargePointID string, payload json.RawMessage) (json.RawMessage, error) {
+	return c.doPOST(ctx, "/internal/transactions/event", chargePointID, payload)
 }
 
 // corePayload extracts the .payload field from a coreEnvelope response

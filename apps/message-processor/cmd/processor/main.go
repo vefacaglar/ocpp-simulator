@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/vefacaglar/ocpp-simulator/apps/message-processor/internal/processor"
-	v16 "github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/v16"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
 )
 
 func main() {
@@ -29,7 +29,7 @@ func main() {
 	}
 
 	core := processor.NewHTTPCoreClient(coreURL)
-	handler := processor.NewHandler(v16.NewProtocol(), core, broker, processor.StdoutEmitter{IncludeFrame: true})
+	handler := processor.NewHandler(protocol.Version1_6, core, broker, processor.StdoutEmitter{IncludeFrame: true})
 	p := processor.New(broker, handler)
 	if err := p.Start(context.Background()); err != nil {
 		log.Fatalf("processor start: %v", err)

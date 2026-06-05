@@ -56,8 +56,8 @@ func newSvc(t *testing.T) (*Service, *fakeBroker) {
 }
 
 // Test: RemoteStart publishes a spec-exact CALL on
-// ocpp/{cpId}/out. The frame is a JSON array starting with 2,
-// with a fresh uniqueId each call.
+// ocpp/{version}/{cpId}/out. The frame is a JSON array starting
+// with 2, with a fresh uniqueId each call.
 func TestCSMS_RemoteStart_PublishesSpecExactCall(t *testing.T) {
 	svc, b := newSvc(t)
 	cpID := "CP-001"
@@ -65,7 +65,7 @@ func TestCSMS_RemoteStart_PublishesSpecExactCall(t *testing.T) {
 	if err := svc.RemoteStart(context.Background(), cpID, "TAG-1", &connID); err != nil {
 		t.Fatalf("RemoteStart: %v", err)
 	}
-	out := b.snapshot("ocpp/" + cpID + "/out")
+	out := b.snapshot("ocpp/1.6J/" + cpID + "/out")
 	if len(out) != 1 {
 		t.Fatalf("expected 1 outbound frame, got %d", len(out))
 	}
@@ -115,10 +115,10 @@ func TestCSMS_RemoteStart_PublishesSpecExactCall(t *testing.T) {
 // a non-spec wire frame.
 func TestCSMS_Reset_RejectsInvalidType(t *testing.T) {
 	svc, b := newSvc(t)
-	if err := svc.Reset(context.Background(), "CP-1", "Bogus"); err == nil {
+	if err := svc.Reset(context.Background(), "CP-1", "1.6J", "Bogus"); err == nil {
 		t.Fatal("expected error for invalid reset type")
 	}
-	if out := b.snapshot("ocpp/CP-1/out"); len(out) != 0 {
+	if out := b.snapshot("ocpp/1.6J/CP-1/out"); len(out) != 0 {
 		t.Errorf("must not publish on validation failure, got %d", len(out))
 	}
 }
@@ -132,7 +132,7 @@ func TestCSMS_UniqueIDs_AreUnique(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	out := b.snapshot("ocpp/CP-U/out")
+	out := b.snapshot("ocpp/1.6J/CP-U/out")
 	seen := make(map[string]bool)
 	for _, raw := range out {
 		var frame []json.RawMessage
@@ -155,11 +155,55 @@ func TestCSMS_RemoteStopAndUnlock(t *testing.T) {
 	if err := svc.RemoteStop(context.Background(), "CP-X", 42); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.UnlockConnector(context.Background(), "CP-X", 1); err != nil {
+	if err := svc.UnlockConnector(context.Background(), "CP-X", "1.6J", 1); err != nil {
 		t.Fatal(err)
 	}
-	if out := b.snapshot("ocpp/CP-X/out"); len(out) != 2 {
+	if out := b.snapshot("ocpp/1.6J/CP-X/out"); len(out) != 2 {
 		t.Fatalf("expected 2 outbound frames, got %d", len(out))
+	}
+}
+
+// Test: RequestStartTransaction is the 2.0.1 entry point; the
+// payload uses structured idToken + remoteStartId. Topic is
+// ocpp/2.0.1/{cpId}/out.
+func TestCSMS_RequestStartTransaction_PublishesSpecExactCall(t *testing.T) {
+	svc, b := newSvc(t)
+	cpID := "CP-V201"
+	if err := svc.RequestStartTransaction(context.Background(), cpID, "TOKEN-X", "ISO14443", 7, nil); err != nil {
+		t.Fatalf("RequestStartTransaction: %v", err)
+	}
+	out := b.snapshot("ocpp/2.0.1/" + cpID + "/out")
+	if len(out) != 1 {
+		t.Fatalf("expected 1 outbound frame, got %d", len(out))
+	}
+	raw := out[0]
+	var frame []json.RawMessage
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var action string
+	_ = json.Unmarshal(frame[2], &action)
+	if action != "RequestStartTransaction" {
+		t.Errorf("action = %q", action)
+	}
+	var payload struct {
+		IDToken struct {
+			IDToken string `json:"idToken"`
+			Type    string `json:"type"`
+		} `json:"idToken"`
+		RemoteStartID int `json:"remoteStartId"`
+	}
+	if err := json.Unmarshal(frame[3], &payload); err != nil {
+		t.Fatalf("payload decode: %v", err)
+	}
+	if payload.IDToken.IDToken != "TOKEN-X" {
+		t.Errorf("idToken.idToken = %q", payload.IDToken.IDToken)
+	}
+	if payload.IDToken.Type != "ISO14443" {
+		t.Errorf("idToken.type = %q", payload.IDToken.Type)
+	}
+	if payload.RemoteStartID != 7 {
+		t.Errorf("remoteStartId = %d", payload.RemoteStartID)
 	}
 }
 

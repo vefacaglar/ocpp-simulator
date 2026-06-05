@@ -21,8 +21,10 @@ func (g *Gateway) WSHandler() http.Handler {
 		// Production deployments should restrict this.
 		CheckOrigin: func(r *http.Request) bool { return true },
 		// Advertise both OCPP subprotocols. The actual subprotocol
-		// selected by the client is echoed in the response header,
-		// which is the OCPP spec's expected handshake.
+		// selected by the client is echoed in the response header
+		// and captured by conn.Subprotocol() after Upgrade, which
+		// is the OCPP spec's expected handshake and the version
+		// discovery point (multi-version plan §3).
 		Subprotocols: []string{"ocpp1.6", "ocpp2.0.1"},
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -32,15 +34,57 @@ func (g *Gateway) WSHandler() http.Handler {
 			return
 		}
 
+		// Negotiate the OCPP subprotocol from the
+		// Sec-WebSocket-Protocol header. The gorilla
+		// Upgrader.Upgrade will select the first advertised
+		// token it finds in the client's offered list, so we
+		// read it back via the response-header check BEFORE
+		// Upgrade (offered list) AND post-Upgrade via
+		// conn.Subprotocol() (the canonical version the client
+		// selected). Doing the check pre-upgrade lets us
+		// reject the request with a clean 400 instead of
+		// upgrading then closing.
+		offered := offeredSubprotocols(r)
+		var version string
+		var ok bool
+		for _, tok := range offered {
+			if version, ok = subprotocolToVersion(tok); ok {
+				break
+			}
+		}
+		if !ok {
+			log.Printf("[ocpp-gateway] rejecting %s: no OCPP subprotocol offered (got %v)", cpID, offered)
+			http.Error(w, "OCPP subprotocol required: ocpp1.6 or ocpp2.0.1", http.StatusBadRequest)
+			return
+		}
+
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Printf("[ocpp-gateway] upgrade failed for %s: %v", cpID, err)
 			return
 		}
+		// Defense-in-depth: confirm the negotiated subprotocol
+		// matches the one the upgrader actually selected. The
+		// upgrader picks the first match; if a client offered
+		// both, we want the first we accepted.
+		if got := conn.Subprotocol(); got != "" {
+			if v, match := subprotocolToVersion(got); match {
+				version = v
+			} else {
+				log.Printf("[ocpp-gateway] closing %s: negotiated subprotocol %q is not OCPP", cpID, got)
+				_ = conn.WriteControl(
+					websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseProtocolError, "OCPP subprotocol required"),
+					time.Now().Add(time.Second),
+				)
+				_ = conn.Close()
+				return
+			}
+		}
 		// Set a write deadline to detect half-open peers.
 		_ = conn.SetWriteDeadline(time.Now().Add(60 * time.Second))
 
-		cp, err := g.Connect(cpID)
+		cp, err := g.Connect(version, cpID)
 		if err != nil {
 			log.Printf("[ocpp-gateway] connect failed for %s: %v", cpID, err)
 			_ = conn.WriteControl(
@@ -56,6 +100,26 @@ func (g *Gateway) WSHandler() http.Handler {
 		go g.pumpOutbound(cp, conn)
 		g.pumpInbound(r.Context(), cp, conn)
 	})
+}
+
+// offeredSubprotocols returns the list of WebSocket subprotocol
+// tokens the client offered in the Sec-WebSocket-Protocol header,
+// in order. An absent or empty header returns an empty slice (the
+// caller then sees ok=false and rejects the connection).
+func offeredSubprotocols(r *http.Request) []string {
+	hdr := r.Header.Get("Sec-WebSocket-Protocol")
+	if hdr == "" {
+		return nil
+	}
+	parts := strings.Split(hdr, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		s := strings.TrimSpace(p)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // extractChargePointID parses /ws/{id} and returns the id, or "" if
@@ -100,7 +164,7 @@ func (g *Gateway) pumpInbound(ctx context.Context, cp *Connection, conn *websock
 			)
 			return
 		}
-		if err := g.PublishInbound(cp.ChargePointID, payload); err != nil {
+		if err := g.PublishInbound(cp.Version, cp.ChargePointID, payload); err != nil {
 			log.Printf("[ocpp-gateway] publish inbound for %s failed: %v", cp.ChargePointID, err)
 			return
 		}

@@ -77,6 +77,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /internal/transactions/authorize", s.handleAuthorize)
 	s.mux.HandleFunc("POST /internal/transactions/start", s.handleStartTransaction)
 	s.mux.HandleFunc("POST /internal/transactions/stop", s.handleStopTransaction)
+	s.mux.HandleFunc("POST /internal/transactions/event", s.handleTransactionEvent)
 	s.mux.HandleFunc("POST /internal/csms/remote-start", s.handleRemoteStart)
 	s.mux.HandleFunc("POST /internal/csms/remote-stop", s.handleRemoteStop)
 	s.mux.HandleFunc("POST /internal/csms/reset", s.handleReset)
@@ -85,6 +86,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /internal/csms/get-configuration", s.handleGetConfiguration)
 	s.mux.HandleFunc("POST /internal/csms/trigger-message", s.handleTriggerMessage)
 	s.mux.HandleFunc("POST /internal/csms/change-availability", s.handleChangeAvailability)
+	// 2.0.1 CSMS surface.
+	s.mux.HandleFunc("POST /internal/csms/request-start-transaction", s.handleRequestStartTransaction)
+	s.mux.HandleFunc("POST /internal/csms/request-stop-transaction", s.handleRequestStopTransaction)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

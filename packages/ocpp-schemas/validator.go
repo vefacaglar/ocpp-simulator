@@ -9,13 +9,19 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
-//go:embed v16/*.json
+//go:embed v16/*.json v201/*.json
 var schemaFS embed.FS
 
 type Version string
 
+// Canonical Version constants. These match the protocol.Version1_6 /
+// protocol.Version2_0_1 strings used as Factory keys and MQTT topic
+// segments. The previous value for V16 was "1.6" (no J) which was
+// inconsistent with the protocol package and the web frontend. A
+// single source of truth removes a class of stringly-typed bugs at
+// the validator boundary.
 const (
-	V16  Version = "1.6"
+	V16  Version = "1.6J"
 	V201 Version = "2.0.1"
 )
 
@@ -44,7 +50,7 @@ func loadSchema(version Version, action string, dir Direction) (*jsonschema.Sche
 	case V16:
 		path = fmt.Sprintf("v16/%s.json", filename)
 	case V201:
-		return nil, fmt.Errorf("ocpp-schemas: v2.0.1 not yet supported")
+		path = fmt.Sprintf("v201/%s.json", filename)
 	default:
 		return nil, fmt.Errorf("ocpp-schemas: unknown version %s", version)
 	}

@@ -9,7 +9,7 @@ import (
 
 	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/codec"
 	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/message"
-	v16 "github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/v16"
+	"github.com/vefacaglar/ocpp-simulator/packages/ocpp-protocol/pkg/protocol"
 )
 
 // callFrame is a small helper to build a raw OCPP-J CALL array
@@ -60,7 +60,7 @@ func callErrorFrame(t *testing.T, uniqueID string, code message.ErrorCode, desc 
 
 func newTestHandler(broker Broker, core CoreClient) (*Handler, *memoryEmitter) {
 	em := &memoryEmitter{}
-	h := NewHandler(v16.NewProtocol(), core, broker, em)
+	h := NewHandler(protocol.Version1_6, core, broker, em)
 	return h, em
 }
 
@@ -154,7 +154,7 @@ func TestHandler_CoreIndependentResponses(t *testing.T) {
 
 			// Exactly one frame on the /out topic, byte-equal to
 			// what the codec would produce. No wrapping.
-			out := subBroker.publishedOn("ocpp/CP-T/out")
+			out := subBroker.publishedOn("ocpp/1.6J/CP-T/out")
 			if len(out) != 1 {
 				t.Fatalf("expected 1 outbound frame, got %d", len(out))
 			}
@@ -204,7 +204,7 @@ func TestHandler_CoreRoutedActions(t *testing.T) {
 			t.Errorf("expected 1 Authorize call to core, got %d", seen)
 		}
 		// Outbound is the core-supplied payload, byte-exact.
-		out := broker.publishedOn("ocpp/CP-CORE/out")
+		out := broker.publishedOn("ocpp/1.6J/CP-CORE/out")
 		if len(out) != 1 {
 			t.Fatalf("expected 1 outbound frame, got %d", len(out))
 		}
@@ -226,7 +226,7 @@ func TestHandler_CoreRoutedActions(t *testing.T) {
 		if seen != 1 {
 			t.Errorf("expected 1 StartTransaction call to core, got %d", seen)
 		}
-		dec, _ := codec.New().Decode(broker.publishedOn("ocpp/CP-CORE/out")[0])
+		dec, _ := codec.New().Decode(broker.publishedOn("ocpp/1.6J/CP-CORE/out")[0])
 		// Core's transactionId=7 must be present.
 		if !bytes.Contains(dec.Payload, []byte(`"transactionId":7`)) {
 			t.Errorf("StartTransaction.conf did not contain core's transactionId; got %s", dec.Payload)
@@ -245,7 +245,7 @@ func TestHandler_CoreRoutedActions(t *testing.T) {
 		if seen != 1 {
 			t.Errorf("expected 1 StopTransaction call to core, got %d", seen)
 		}
-		dec, _ := codec.New().Decode(broker.publishedOn("ocpp/CP-CORE/out")[0])
+		dec, _ := codec.New().Decode(broker.publishedOn("ocpp/1.6J/CP-CORE/out")[0])
 		if !bytes.Contains(dec.Payload, []byte(`"Expired"`)) {
 			t.Errorf("StopTransaction.conf did not contain core's idTagInfo status; got %s", dec.Payload)
 		}
@@ -263,7 +263,7 @@ func TestHandler_CoreUnavailable_ProducesCALLERROR(t *testing.T) {
 	raw := callFrame(t, "Authorize", "uid-ERR", map[string]string{"idTag": "T"})
 	h.Handle(context.Background(), "CP-ERR", raw)
 
-	out := broker.publishedOn("ocpp/CP-ERR/out")
+	out := broker.publishedOn("ocpp/1.6J/CP-ERR/out")
 	if len(out) != 1 {
 		t.Fatalf("expected 1 outbound frame, got %d", len(out))
 	}
@@ -295,7 +295,7 @@ func TestHandler_UnknownAction_ProducesNotImplemented(t *testing.T) {
 	raw := callFrame(t, "RemoteStartTransaction", "uid-RS", map[string]interface{}{"idTag": "T"})
 	h.Handle(context.Background(), "CP-U", raw)
 
-	out := broker.publishedOn("ocpp/CP-U/out")
+	out := broker.publishedOn("ocpp/1.6J/CP-U/out")
 	if len(out) != 1 {
 		t.Fatalf("expected 1 outbound frame, got %d", len(out))
 	}
@@ -323,7 +323,7 @@ func TestHandler_InboundCALLRESULT_NoResponse(t *testing.T) {
 	})
 	h.Handle(context.Background(), "CP-RES", raw)
 
-	if got := broker.publishedOn("ocpp/CP-RES/out"); len(got) != 0 {
+	if got := broker.publishedOn("ocpp/1.6J/CP-RES/out"); len(got) != 0 {
 		t.Errorf("CALLRESULT inbound must not produce a response; got %d frames", len(got))
 	}
 	events := em.snapshot()
@@ -352,7 +352,7 @@ func TestHandler_InboundCALLERROR_NoResponse(t *testing.T) {
 	raw := callErrorFrame(t, "uid-ERR", message.ErrorCodeGenericError, "oops")
 	h.Handle(context.Background(), "CP-ERR-IN", raw)
 
-	if got := broker.publishedOn("ocpp/CP-ERR-IN/out"); len(got) != 0 {
+	if got := broker.publishedOn("ocpp/1.6J/CP-ERR-IN/out"); len(got) != 0 {
 		t.Errorf("CALLERROR inbound must not produce a response; got %d frames", len(got))
 	}
 	events := em.snapshot()
@@ -375,7 +375,7 @@ func TestHandler_ParseError_NoPublish(t *testing.T) {
 
 	h.Handle(context.Background(), "CP-PARSE", []byte("not a json array"))
 
-	if got := broker.publishedOn("ocpp/CP-PARSE/out"); len(got) != 0 {
+	if got := broker.publishedOn("ocpp/1.6J/CP-PARSE/out"); len(got) != 0 {
 		t.Errorf("parse error must not publish; got %d", len(got))
 	}
 	events := em.snapshot()
@@ -396,7 +396,7 @@ func TestHandler_OutboundIsRawOCPPArray(t *testing.T) {
 	raw := callFrame(t, "Heartbeat", "uid-RAW", struct{}{})
 	h.Handle(context.Background(), "CP-RAW", raw)
 
-	out := broker.publishedOn("ocpp/CP-RAW/out")
+	out := broker.publishedOn("ocpp/1.6J/CP-RAW/out")
 	if len(out) != 1 {
 		t.Fatalf("expected 1 outbound frame, got %d", len(out))
 	}
@@ -432,13 +432,13 @@ func TestHandler_PerCPRouting(t *testing.T) {
 		raw := callFrame(t, "Heartbeat", "uid-"+cp, struct{}{})
 		h.Handle(context.Background(), cp, raw)
 	}
-	if got := broker.publishedOn("ocpp/CP-A/out"); len(got) != 1 {
+	if got := broker.publishedOn("ocpp/1.6J/CP-A/out"); len(got) != 1 {
 		t.Errorf("CP-A: expected 1 frame, got %d", len(got))
 	}
-	if got := broker.publishedOn("ocpp/CP-B/out"); len(got) != 1 {
+	if got := broker.publishedOn("ocpp/1.6J/CP-B/out"); len(got) != 1 {
 		t.Errorf("CP-B: expected 1 frame, got %d", len(got))
 	}
-	if got := broker.publishedOn("ocpp/CP-A/in"); len(got) != 0 {
+	if got := broker.publishedOn("ocpp/1.6J/CP-A/in"); len(got) != 0 {
 		t.Errorf("nothing should be published to /in")
 	}
 }
@@ -455,11 +455,11 @@ func TestProcessor_Start_DispatchesByTopic(t *testing.T) {
 	defer p.Stop()
 
 	raw := callFrame(t, "Heartbeat", "uid-START", struct{}{})
-	if n := broker.deliver("ocpp/+/in", "ocpp/CP-S/in", raw); n != 1 {
+	if n := broker.deliver("ocpp/+/+/in", "ocpp/1.6J/CP-S/in", raw); n != 1 {
 		t.Fatalf("deliver reached %d handlers, want 1", n)
 	}
 
-	if got := broker.publishedOn("ocpp/CP-S/out"); len(got) != 1 {
+	if got := broker.publishedOn("ocpp/1.6J/CP-S/out"); len(got) != 1 {
 		t.Errorf("expected 1 outbound frame on /CP-S/out, got %d", len(got))
 	}
 	// At least one "consumed" audit event should be present.
@@ -486,33 +486,109 @@ func TestProcessor_Stop_Unsubscribes(t *testing.T) {
 	p.Stop()
 	// After Stop, no handler should be registered.
 	broker.mu.Lock()
-	n := len(broker.byTopic["ocpp/+/in"])
+	n := len(broker.byTopic["ocpp/+/+/in"])
 	broker.mu.Unlock()
 	if n != 0 {
 		t.Errorf("after Stop, expected 0 subscribers on ocpp/+/in, got %d", n)
 	}
 }
 
-// --- Test 12: ChargePointIDFromTopic parser ---
+// --- Test 12: ChargePointIDFromTopic + SplitVersionAndCPIDFromTopic parser ---
 
 func TestChargePointIDFromTopic(t *testing.T) {
 	cases := []struct {
 		topic string
 		want  string
 	}{
-		{"ocpp/CP-001/in", "CP-001"},
-		{"ocpp/CP-001/out", "CP-001"},
-		{"ocpp/CP-007/in", "CP-007"},
+		// Versioned (4-segment) topics — current format.
+		{"ocpp/1.6J/CP-001/in", "CP-001"},
+		{"ocpp/1.6J/CP-001/out", "CP-001"},
+		{"ocpp/2.0.1/CP-007/in", "CP-007"},
+		{"ocpp/1.6J/CP-007/out", "CP-007"},
+		// Bad shapes.
 		{"", ""},
-		{"ocpp//in", ""},
-		{"other/CP-1/in", ""},
-		{"ocpp/CP-1/other", ""},
-		{"ocpp/CP-1", ""},
-		{"ocpp/CP-1/in/extra", ""},
+		{"ocpp//CP-1/in", ""},           // empty version
+		{"ocpp/1.6J//in", ""},            // empty cpId
+		{"ocpp/1.6J/CP-1/other", ""},     // wrong direction
+		{"ocpp/1.6J/CP-1", ""},           // missing direction
+		{"ocpp/1.6J/CP-1/in/extra", ""},  // extra segment
+		{"other/1.6J/CP-1/in", ""},       // wrong prefix
 	}
 	for _, c := range cases {
 		if got := ChargePointIDFromTopic(c.topic); got != c.want {
 			t.Errorf("ChargePointIDFromTopic(%q) = %q, want %q", c.topic, got, c.want)
 		}
+	}
+}
+
+func TestSplitVersionAndCPIDFromTopic(t *testing.T) {
+	cases := []struct {
+		topic     string
+		version   string
+		cpID      string
+		ok        bool
+	}{
+		{"ocpp/1.6J/CP-001/in", "1.6J", "CP-001", true},
+		{"ocpp/2.0.1/CP-007/out", "2.0.1", "CP-007", true},
+		{"ocpp/1.6J/CP-001/out", "1.6J", "CP-001", true},
+		{"ocpp//CP-1/in", "", "", false},
+		{"ocpp/1.6J//in", "", "", false},
+		{"ocpp/1.6J/CP-1/other", "", "", false},
+		{"ocpp/1.6J/CP-1", "", "", false},
+		{"", "", "", false},
+		{"other/1.6J/CP-1/in", "", "", false},
+	}
+	for _, c := range cases {
+		v, id, ok := SplitVersionAndCPIDFromTopic(c.topic)
+		if v != c.version || id != c.cpID || ok != c.ok {
+			t.Errorf("SplitVersionAndCPIDFromTopic(%q) = (%q, %q, %v), want (%q, %q, %v)",
+				c.topic, v, id, ok, c.version, c.cpID, c.ok)
+		}
+	}
+}
+
+// --- Test 13: multi-version routing ---
+
+// TestHandler_VersionedRouting_MixedVersions verifies that the same
+// handler instance can serve both 1.6J and 2.0.1 charge points:
+// the version is read from the topic, not the handler's pinned
+// Version field. This is the central invariant of the multi-version
+// plan: the message-processor does not need per-version
+// processes.
+func TestHandler_VersionedRouting_MixedVersions(t *testing.T) {
+	broker := newFakeBroker()
+	core := &fakeCore{
+		transactionEventResp: json.RawMessage(`{"idTokenInfo":{"status":"Accepted"}}`),
+	}
+	h, _ := newTestHandler(broker, core)
+
+	// 1.6J Heartbeat goes to the versioned 1.6J /out topic.
+	raw1 := callFrame(t, "Heartbeat", "uid-v16", struct{}{})
+	h.HandleWithVersion(context.Background(), "CP-A", "1.6J", raw1)
+	out1 := broker.publishedOn("ocpp/1.6J/CP-A/out")
+	if len(out1) != 1 {
+		t.Errorf("expected 1 outbound on 1.6J /out, got %d", len(out1))
+	}
+
+	// 2.0.1 Heartbeat goes to the versioned 2.0.1 /out topic.
+	raw2 := callFrame(t, "Heartbeat", "uid-v201", struct{}{})
+	h.HandleWithVersion(context.Background(), "CP-B", "2.0.1", raw2)
+	out2 := broker.publishedOn("ocpp/2.0.1/CP-B/out")
+	if len(out2) != 1 {
+		t.Errorf("expected 1 outbound on 2.0.1 /out, got %d", len(out2))
+	}
+
+	// 2.0.1 TransactionEvent is routed to the core (not the
+	// 1.6J StartTransaction path).
+	broker.published = make(map[string][][]byte)
+	tePayload := []byte(`{"eventType":"Started","timestamp":"2025-01-01T00:00:00Z","triggerReason":"CablePluggedIn","seqNo":0,"transactionInfo":{"transactionId":"tx-1"}}`)
+	raw3 := callFrame(t, "TransactionEvent", "uid-TE", json.RawMessage(tePayload))
+	h.HandleWithVersion(context.Background(), "CP-B", "2.0.1", raw3)
+	if len(core.transactionEventCalls) != 1 {
+		t.Errorf("expected TransactionEvent call to core, got %d", len(core.transactionEventCalls))
+	}
+	out3 := broker.publishedOn("ocpp/2.0.1/CP-B/out")
+	if len(out3) != 1 {
+		t.Errorf("expected 1 outbound on 2.0.1 /out for TransactionEvent, got %d", len(out3))
 	}
 }

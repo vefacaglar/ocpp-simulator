@@ -59,12 +59,12 @@ func TestCanonicalLog_InboundAndOutbound_PersistedRaw(t *testing.T) {
 	boot := callFrame(t, "BootNotification", "uid-A", map[string]string{
 		"chargePointVendor": "V", "chargePointModel": "M",
 	})
-	broker.deliver(InboundTopicPattern, "ocpp/CP-A/in", boot)
+	broker.deliver(InboundTopicPattern, "ocpp/1.6J/CP-A/in", boot)
 
 	c := codec.New()
 	resp, _ := c.BuildResult("uid-A", map[string]interface{}{"status": "Accepted", "currentTime": "2025-01-01T00:00:00Z", "interval": 300})
 	respRaw, _ := c.Encode(resp)
-	broker.deliver(OutboundTopicPattern, "ocpp/CP-A/out", respRaw)
+	broker.deliver(OutboundTopicPattern, "ocpp/1.6J/CP-A/out", respRaw)
 
 	// Wait briefly for the persistence goroutines.
 	deadline := time.Now().Add(2 * time.Second)
@@ -145,7 +145,7 @@ func TestCanonicalLog_ChargePointIDFromTopic(t *testing.T) {
 	// charge_point_id.
 	for _, cp := range []string{"CP-X", "CP-Y"} {
 		raw := callFrame(t, "Heartbeat", "uid-"+cp, struct{}{})
-		broker.deliver(InboundTopicPattern, "ocpp/"+cp+"/in", raw)
+		broker.deliver(InboundTopicPattern, "ocpp/1.6J/"+cp+"/in", raw)
 	}
 
 	// Wait until both rows are visible. Allow up to 2s because
@@ -172,7 +172,7 @@ func TestCanonicalLog_ParseError_StillLogged(t *testing.T) {
 	if _, err := svc.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	broker.deliver(InboundTopicPattern, "ocpp/CP-E/in", []byte("not a json array"))
+	broker.deliver(InboundTopicPattern, "ocpp/1.6J/CP-E/in", []byte("not a json array"))
 
 	deadline := time.Now().Add(2 * time.Second)
 	for {

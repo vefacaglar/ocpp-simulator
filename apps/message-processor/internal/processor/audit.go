@@ -19,6 +19,7 @@ import (
 type AuditEvent struct {
 	Kind          string `json:"kind"` // "consumed" or "published"
 	ChargePointID string `json:"chargePointId"`
+	OCPPVersion   string `json:"ocppVersion,omitempty"`
 	Topic         string `json:"topic"`
 	Action        string `json:"action,omitempty"`
 	UniqueID      string `json:"uniqueId,omitempty"`

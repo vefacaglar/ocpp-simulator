@@ -337,13 +337,30 @@ validate against the official schema; cover CALL/CALLRESULT/CALLERROR framing, d
 round-trip, correlation, and golden fixtures. A non-spec payload must be rejected.
 
 ### Phase A — Schemas (`packages/ocpp-schemas`)
-1. Download the official 2.0.1 schemas. **Source (verified working):**
-   **`github.com/mobilityhouse/ocpp`** under `ocpp/v201/schemas/` — these are the canonical
-   OCA "OCPP 2.0.1 FINAL" JSON schemas (`"comment": "OCPP 2.0.1 FINAL"` inside each file),
-   vendored verbatim. Alternative byte-identical source: `github.com/EVerest/libocpp`.
-   The OCA itself distributes these only in a registration-gated spec package and has no
-   public cloneable schema repo, so use the vendored copy above; content is identical —
-   provenance/naming is the only difference.
+1. **✅ DONE — schemas downloaded & verified.** The 14 core-flow actions (28 files) are in
+   `packages/ocpp-schemas/v201/` using the loader convention (`{Action}.json` request /
+   `{Action}Response.json` response): BootNotification, Heartbeat, StatusNotification,
+   Authorize, TransactionEvent, MeterValues, RequestStartTransaction, RequestStopTransaction,
+   Reset, UnlockConnector, TriggerMessage, ChangeAvailability, GetVariables, SetVariables.
+   All valid JSON; provenance `"comment": "OCPP 2.0.1 FINAL"`, draft-06. Verified
+   `TransactionEvent` request `required` = `[eventType, timestamp, triggerReason, seqNo,
+   transactionInfo]` (confirms `seqNo` is mandatory).
+
+   **Source (verified working):** `github.com/mobilityhouse/ocpp` under `ocpp/v201/schemas/`
+   — canonical OCA "OCPP 2.0.1 FINAL" schemas, vendored verbatim (alternative byte-identical:
+   `github.com/EVerest/libocpp`). The OCA distributes these only in a registration-gated spec
+   package with no public cloneable repo. Reproduce with (`curl -f` so a 404 errors instead
+   of writing a 14-byte junk file):
+   ```bash
+   cd packages/ocpp-schemas/v201
+   BASE="https://raw.githubusercontent.com/mobilityhouse/ocpp/master/ocpp/v201/schemas"
+   for a in BootNotification Heartbeat StatusNotification Authorize TransactionEvent \
+            MeterValues RequestStartTransaction RequestStopTransaction Reset \
+            UnlockConnector TriggerMessage ChangeAvailability GetVariables SetVariables; do
+     curl -fsSL "$BASE/${a}Request.json"  -o "${a}.json"
+     curl -fsSL "$BASE/${a}Response.json" -o "${a}Response.json"
+   done
+   ```
 
    **Naming mismatch to handle:** official files are `{Action}Request.json` /
    `{Action}Response.json`, but the validator loader (`validator.go` builds

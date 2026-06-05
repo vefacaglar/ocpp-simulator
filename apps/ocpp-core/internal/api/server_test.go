@@ -271,7 +271,7 @@ func TestAPI_RemoteStart_PublishesCALL(t *testing.T) {
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
 	}
-	out := br.snapshot("ocpp/CP-CSMS/out")
+	out := br.snapshot("ocpp/1.6J/CP-CSMS/out")
 	if len(out) != 1 {
 		t.Fatalf("expected 1 outbound frame, got %d", len(out))
 	}
@@ -303,5 +303,310 @@ func TestAPI_Health(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d", w.Code)
+	}
+}
+
+// --- 2.0.1 TransactionEvent (Started / Ended) ---
+
+// TestAPI_TransactionEvent_Started_CreatesTransaction: a 2.0.1
+// Started event POSTed through /internal/transactions/event must
+// create a row with the CP-chosen GUID and no numeric_id. The
+// response payload is the spec-exact TransactionEvent.conf body
+// { idTokenInfo: { status: "Accepted" } }.
+func TestAPI_TransactionEvent_Started_CreatesTransaction(t *testing.T) {
+	srv, _, _, cleanup := makeServer(t)
+	defer cleanup()
+
+	payload := []byte(`{
+		"eventType":"Started",
+		"timestamp":"2025-01-01T00:00:00Z",
+		"triggerReason":"CablePluggedIn",
+		"seqNo":0,
+		"transactionInfo":{"transactionId":"tx-guid-1"},
+		"evse":{"id":1,"connectorId":1},
+		"idToken":{"idToken":"TOKEN-1","type":"ISO14443"}
+	}`)
+	w := postEnvelope(t, srv, "/internal/transactions/event", envelope{
+		ChargePointID: "CP-TE",
+		Version:       "2.0.1",
+		Payload:       json.RawMessage(payload),
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+	var got envelope
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var conf struct {
+		IDTokenInfo struct {
+			Status string `json:"status"`
+		} `json:"idTokenInfo"`
+	}
+	if err := json.Unmarshal(got.Payload, &conf); err != nil {
+		t.Fatalf("payload decode: %v", err)
+	}
+	if conf.IDTokenInfo.Status != "Accepted" {
+		t.Errorf("idTokenInfo.status = %q, want Accepted", conf.IDTokenInfo.Status)
+	}
+}
+
+// TestAPI_TransactionEvent_Ended_Finalizes: a Started + Ended
+// sequence on the same GUID must succeed; the Ended response is
+// also { idTokenInfo: { status: "Accepted" } }.
+func TestAPI_TransactionEvent_Ended_Finalizes(t *testing.T) {
+	srv, _, _, cleanup := makeServer(t)
+	defer cleanup()
+
+	guid := "tx-guid-ended"
+	startPayload := []byte(`{
+		"eventType":"Started",
+		"timestamp":"2025-01-01T00:00:00Z",
+		"triggerReason":"CablePluggedIn",
+		"seqNo":0,
+		"transactionInfo":{"transactionId":"` + guid + `"},
+		"evse":{"id":1}
+	}`)
+	if w := postEnvelope(t, srv, "/internal/transactions/event", envelope{
+		ChargePointID: "CP-TE2",
+		Version:       "2.0.1",
+		Payload:       json.RawMessage(startPayload),
+	}); w.Code != http.StatusOK {
+		t.Fatalf("start: %d %s", w.Code, w.Body.String())
+	}
+
+	endPayload := []byte(`{
+		"eventType":"Ended",
+		"timestamp":"2025-01-01T01:00:00Z",
+		"triggerReason":"EVDeparted",
+		"seqNo":1,
+		"transactionInfo":{"transactionId":"` + guid + `"},
+		"evse":{"id":1}
+	}`)
+	w := postEnvelope(t, srv, "/internal/transactions/event", envelope{
+		ChargePointID: "CP-TE2",
+		Version:       "2.0.1",
+		Payload:       json.RawMessage(endPayload),
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("end: %d %s", w.Code, w.Body.String())
+	}
+	var got envelope
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var conf struct {
+		IDTokenInfo struct {
+			Status string `json:"status"`
+		} `json:"idTokenInfo"`
+	}
+	_ = json.Unmarshal(got.Payload, &conf)
+	if conf.IDTokenInfo.Status != "Accepted" {
+		t.Errorf("idTokenInfo.status = %q, want Accepted", conf.IDTokenInfo.Status)
+	}
+}
+
+// TestAPI_TransactionEvent_RejectsMissingTransactionId: the spec
+// requires transactionInfo.transactionId; a missing id is a 400.
+func TestAPI_TransactionEvent_RejectsMissingTransactionId(t *testing.T) {
+	srv, _, _, cleanup := makeServer(t)
+	defer cleanup()
+
+	payload := []byte(`{
+		"eventType":"Started",
+		"timestamp":"2025-01-01T00:00:00Z",
+		"triggerReason":"CablePluggedIn",
+		"seqNo":0,
+		"evse":{"id":1}
+	}`)
+	w := postEnvelope(t, srv, "/internal/transactions/event", envelope{
+		ChargePointID: "CP-TE3",
+		Version:       "2.0.1",
+		Payload:       json.RawMessage(payload),
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+// --- 2.0.1 CSMS-initiated: RequestStartTransaction / RequestStopTransaction ---
+
+// TestAPI_RequestStartTransaction_PublishesSpecExactCall: a
+// /internal/csms/request-start-transaction POST must publish a
+// spec-exact RequestStartTransaction CALL on
+// ocpp/2.0.1/{cpId}/out. The payload uses the structured
+// {idToken, type} and the mandatory remoteStartId.
+func TestAPI_RequestStartTransaction_PublishesSpecExactCall(t *testing.T) {
+	srv, br, _, cleanup := makeServer(t)
+	defer cleanup()
+
+	payload := []byte(`{
+		"idToken":{"idToken":"TOKEN-7","type":"ISO14443"},
+		"remoteStartId":42
+	}`)
+	w := postEnvelope(t, srv, "/internal/csms/request-start-transaction", envelope{
+		ChargePointID: "CP-RS201",
+		Version:       "2.0.1",
+		Payload:       json.RawMessage(payload),
+	})
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+	out := br.snapshot("ocpp/2.0.1/CP-RS201/out")
+	if len(out) != 1 {
+		t.Fatalf("expected 1 outbound frame, got %d", len(out))
+	}
+	raw := out[0]
+	var frame []json.RawMessage
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(frame) != 4 {
+		t.Fatalf("frame arity = %d, want 4", len(frame))
+	}
+	var typeID int
+	_ = json.Unmarshal(frame[0], &typeID)
+	if typeID != 2 {
+		t.Errorf("typeID = %d, want 2 (CALL)", typeID)
+	}
+	var action string
+	_ = json.Unmarshal(frame[2], &action)
+	if action != "RequestStartTransaction" {
+		t.Errorf("action = %q", action)
+	}
+	var body struct {
+		IDToken       struct{ IDToken, Type string } `json:"idToken"`
+		RemoteStartID int                            `json:"remoteStartId"`
+	}
+	_ = json.Unmarshal(frame[3], &body)
+	if body.IDToken.IDToken != "TOKEN-7" || body.IDToken.Type != "ISO14443" {
+		t.Errorf("idToken = %+v", body.IDToken)
+	}
+	if body.RemoteStartID != 42 {
+		t.Errorf("remoteStartId = %d", body.RemoteStartID)
+	}
+}
+
+// TestAPI_RequestStartTransaction_RejectsMissingIDToken: a
+// missing idToken is a 400, and nothing is published.
+func TestAPI_RequestStartTransaction_RejectsMissingIDToken(t *testing.T) {
+	srv, br, _, cleanup := makeServer(t)
+	defer cleanup()
+
+	w := postEnvelope(t, srv, "/internal/csms/request-start-transaction", envelope{
+		ChargePointID: "CP-RS201",
+		Version:       "2.0.1",
+		Payload:       json.RawMessage(`{"remoteStartId":1}`),
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+	if out := br.snapshot("ocpp/2.0.1/CP-RS201/out"); len(out) != 0 {
+		t.Errorf("must not publish on validation failure, got %d frames", len(out))
+	}
+}
+
+// TestAPI_RequestStopTransaction_PublishesSpecExactCall: a
+// /internal/csms/request-stop-transaction POST must publish a
+// RequestStopTransaction CALL with the string transactionId in
+// the payload.
+func TestAPI_RequestStopTransaction_PublishesSpecExactCall(t *testing.T) {
+	srv, br, _, cleanup := makeServer(t)
+	defer cleanup()
+
+	payload := []byte(`{"transactionId":"tx-stop-9"}`)
+	w := postEnvelope(t, srv, "/internal/csms/request-stop-transaction", envelope{
+		ChargePointID: "CP-ST201",
+		Version:       "2.0.1",
+		Payload:       json.RawMessage(payload),
+	})
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+	out := br.snapshot("ocpp/2.0.1/CP-ST201/out")
+	if len(out) != 1 {
+		t.Fatalf("expected 1 outbound frame, got %d", len(out))
+	}
+	var frame []json.RawMessage
+	_ = json.Unmarshal(out[0], &frame)
+	var action string
+	_ = json.Unmarshal(frame[2], &action)
+	if action != "RequestStopTransaction" {
+		t.Errorf("action = %q", action)
+	}
+	var body struct {
+		TransactionID string `json:"transactionId"`
+	}
+	_ = json.Unmarshal(frame[3], &body)
+	if body.TransactionID != "tx-stop-9" {
+		t.Errorf("transactionId = %q, want tx-stop-9", body.TransactionID)
+	}
+}
+
+// TestAPI_RequestStopTransaction_RejectsMissingTransactionId: a
+// missing transactionId is a 400.
+func TestAPI_RequestStopTransaction_RejectsMissingTransactionId(t *testing.T) {
+	srv, br, _, cleanup := makeServer(t)
+	defer cleanup()
+
+	w := postEnvelope(t, srv, "/internal/csms/request-stop-transaction", envelope{
+		ChargePointID: "CP-ST201",
+		Version:       "2.0.1",
+		Payload:       json.RawMessage(`{}`),
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+	if out := br.snapshot("ocpp/2.0.1/CP-ST201/out"); len(out) != 0 {
+		t.Errorf("must not publish on validation failure, got %d frames", len(out))
+	}
+}
+
+// --- envelope version defaulting (1.6J when absent) ---
+
+// TestAPI_EnvelopeVersion_DefaultsTo1_6J: a 1.6J-shaped
+// RemoteStart with no "version" field in the envelope must still
+// be accepted (backward compatibility) and routed to the 1.6J
+// /out topic.
+func TestAPI_EnvelopeVersion_DefaultsTo1_6J(t *testing.T) {
+	srv, br, _, cleanup := makeServer(t)
+	defer cleanup()
+
+	// Note: envelope has no Version field set.
+	w := postEnvelope(t, srv, "/internal/csms/remote-start", envelope{
+		ChargePointID: "CP-DEFAULT",
+		Payload:       json.RawMessage(`{"idTag":"TAG-X"}`),
+	})
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+	if out := br.snapshot("ocpp/1.6J/CP-DEFAULT/out"); len(out) != 1 {
+		t.Errorf("expected 1 outbound on 1.6J /out, got %d", len(out))
+	}
+	if out := br.snapshot("ocpp/2.0.1/CP-DEFAULT/out"); len(out) != 0 {
+		t.Errorf("must not publish on 2.0.1 /out when version is default")
+	}
+}
+
+// TestAPI_EnvelopeVersion_2_0_1_Reset_PublishesOnV201Topic: a
+// 2.0.1 Reset with the new Immediate enum must route to
+// ocpp/2.0.1/.../out (proves the version flows through).
+func TestAPI_EnvelopeVersion_2_0_1_Reset_PublishesOnV201Topic(t *testing.T) {
+	srv, br, _, cleanup := makeServer(t)
+	defer cleanup()
+
+	w := postEnvelope(t, srv, "/internal/csms/reset", envelope{
+		ChargePointID: "CP-R201",
+		Version:       "2.0.1",
+		Payload:       json.RawMessage(`{"type":"Immediate"}`),
+	})
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+	if out := br.snapshot("ocpp/2.0.1/CP-R201/out"); len(out) != 1 {
+		t.Errorf("expected 1 outbound on 2.0.1 /out, got %d", len(out))
+	}
+	if out := br.snapshot("ocpp/1.6J/CP-R201/out"); len(out) != 0 {
+		t.Errorf("must not publish on 1.6J /out")
 	}
 }

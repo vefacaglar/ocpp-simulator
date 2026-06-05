@@ -30,9 +30,28 @@ import (
 // /internal/* endpoint. The Payload field is ocpp-core's internal
 // container for the OCPP request/response bytes; on the wire they
 // are passed through verbatim.
+//
+// Version is optional. Callers that need to drive the 2.0.1
+// variant of a CSMS-initiated action (Reset/UnlockConnector/
+// TriggerMessage/ChangeAvailability) include "version":"2.0.1" in
+// the envelope. Absent or empty means "1.6J" — keeps backward
+// compatibility with the original CSMS API surface where every
+// call was 1.6J-shaped by default.
 type envelope struct {
 	ChargePointID string          `json:"chargePointId"`
+	Version       string          `json:"version,omitempty"`
 	Payload       json.RawMessage `json:"payload"`
+}
+
+// envelopeVersion returns the OCPP version embedded in the
+// envelope, defaulting to "1.6J" when absent. The default is
+// chosen to match the original CSMS API behavior, where every
+// call was 1.6J-shaped.
+func (e envelope) envelopeVersion() string {
+	if e.Version == "" {
+		return "1.6J"
+	}
+	return e.Version
 }
 
 type errorResponse struct {
@@ -242,6 +261,102 @@ func (s *Server) findTransactionByNumericID(ctx context.Context, chargePointID s
 	return nil, errors.New("not found")
 }
 
+// --- 2.0.1 unified transaction flow ---
+
+// transactionEventPayload is the 2.0.1 TransactionEvent.req shape
+// the message-processor forwards to ocpp-core. Only the fields we
+// actually use are decoded; the rest stays in the canonical log.
+type transactionEventPayload struct {
+	EventType     string `json:"eventType"`
+	Timestamp     string `json:"timestamp"`
+	TriggerReason string `json:"triggerReason"`
+	SeqNo         int    `json:"seqNo"`
+	TransactionInfo struct {
+		TransactionID string `json:"transactionId"`
+	} `json:"transactionInfo"`
+	EVSE struct {
+		ID         int  `json:"id"`
+		ConnectorID *int `json:"connectorId,omitempty"`
+	} `json:"evse"`
+	IDToken *struct {
+		IDToken string `json:"idToken"`
+		Type    string `json:"type"`
+	} `json:"idToken,omitempty"`
+}
+
+// transactionEventResp is the TransactionEvent.conf body the
+// simulator returns. The spec allows idTokenInfo,
+// updatedPersonalMessage, chargingPriority — we return the
+// minimum the CSMS needs (idTokenInfo with status).
+type transactionEventResp struct {
+	IDTokenInfo struct {
+		Status string `json:"status"`
+	} `json:"idTokenInfo"`
+}
+
+// handleTransactionEvent is the 2.0.1 unified transaction
+// endpoint. eventType drives the action: Started creates a row
+// (CP-chosen GUID, no numeric_id), Updated is a no-op, Ended
+// finalizes the row. The returned idTokenInfo.status is "Accepted"
+// in MVP.
+func (s *Server) handleTransactionEvent(w http.ResponseWriter, r *http.Request) {
+	var req envelope
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.ChargePointID == "" {
+		writeError(w, http.StatusBadRequest, "chargePointId is required")
+		return
+	}
+	var te transactionEventPayload
+	if err := json.Unmarshal(req.Payload, &te); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	if te.EventType == "" {
+		writeError(w, http.StatusBadRequest, "eventType is required")
+		return
+	}
+	if te.TransactionInfo.TransactionID == "" {
+		writeError(w, http.StatusBadRequest, "transactionInfo.transactionId is required")
+		return
+	}
+
+	idTag := ""
+	if te.IDToken != nil {
+		idTag = te.IDToken.IDToken
+	}
+
+	connectorNumber := te.EVSE.ConnectorID
+	if connectorNumber == nil {
+		zero := 1
+		connectorNumber = &zero
+	}
+
+	res, err := s.transactionSvc.HandleEvent(r.Context(), transaction.EventInput{
+		ChargePointID:   req.ChargePointID,
+		EventType:       te.EventType,
+		TransactionID:   te.TransactionInfo.TransactionID,
+		EVSEID:          te.EVSE.ID,
+		ConnectorNumber: *connectorNumber,
+		IDTag:           idTag,
+		SeqNo:           te.SeqNo,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	resp := transactionEventResp{}
+	resp.IDTokenInfo.Status = res.IDTokenInfo.Status
+	writeJSON(w, http.StatusOK, envelope{
+		ChargePointID: req.ChargePointID,
+		Version:       req.envelopeVersion(),
+		Payload:       mustJSON(resp),
+	})
+}
+
 // --- CSMS-initiated: produce raw OCPP CALLs to /out ---
 
 type remoteStartReq struct {
@@ -308,7 +423,7 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if err := s.csmsSvc.Reset(r.Context(), req.ChargePointID, rs.Type); err != nil {
+	if err := s.csmsSvc.Reset(r.Context(), req.ChargePointID, req.envelopeVersion(), rs.Type); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -330,7 +445,7 @@ func (s *Server) handleUnlockConnector(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if err := s.csmsSvc.UnlockConnector(r.Context(), req.ChargePointID, u.ConnectorID); err != nil {
+	if err := s.csmsSvc.UnlockConnector(r.Context(), req.ChargePointID, req.envelopeVersion(), u.ConnectorID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -398,7 +513,7 @@ func (s *Server) handleTriggerMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if err := s.csmsSvc.TriggerMessage(r.Context(), req.ChargePointID, t.RequestedMessage, t.ConnectorID); err != nil {
+	if err := s.csmsSvc.TriggerMessage(r.Context(), req.ChargePointID, req.envelopeVersion(), t.RequestedMessage, t.ConnectorID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -421,7 +536,75 @@ func (s *Server) handleChangeAvailability(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
-	if err := s.csmsSvc.ChangeAvailability(r.Context(), req.ChargePointID, ca.ConnectorID, ca.Type); err != nil {
+	if err := s.csmsSvc.ChangeAvailability(r.Context(), req.ChargePointID, req.envelopeVersion(), ca.ConnectorID, ca.Type); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
+}
+
+// --- 2.0.1 CSMS-initiated: RequestStartTransaction / RequestStopTransaction ---
+
+type requestStartTxReq struct {
+	EVSEID        *int `json:"evseId,omitempty"`
+	IDToken       struct {
+		IDToken string `json:"idToken"`
+		Type    string `json:"type"`
+	} `json:"idToken"`
+	RemoteStartID int `json:"remoteStartId"`
+}
+
+func (s *Server) handleRequestStartTransaction(w http.ResponseWriter, r *http.Request) {
+	var req envelope
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.ChargePointID == "" {
+		writeError(w, http.StatusBadRequest, "chargePointId is required")
+		return
+	}
+	var rs requestStartTxReq
+	if err := json.Unmarshal(req.Payload, &rs); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	if rs.IDToken.IDToken == "" || rs.IDToken.Type == "" {
+		writeError(w, http.StatusBadRequest, "idToken.idToken and idToken.type are required")
+		return
+	}
+	if err := s.csmsSvc.RequestStartTransaction(r.Context(), req.ChargePointID,
+		rs.IDToken.IDToken, rs.IDToken.Type, rs.RemoteStartID, rs.EVSEID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
+}
+
+type requestStopTxReq struct {
+	TransactionID string `json:"transactionId"`
+}
+
+func (s *Server) handleRequestStopTransaction(w http.ResponseWriter, r *http.Request) {
+	var req envelope
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.ChargePointID == "" {
+		writeError(w, http.StatusBadRequest, "chargePointId is required")
+		return
+	}
+	var rs requestStopTxReq
+	if err := json.Unmarshal(req.Payload, &rs); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+	if rs.TransactionID == "" {
+		writeError(w, http.StatusBadRequest, "transactionId is required")
+		return
+	}
+	if err := s.csmsSvc.RequestStopTransaction(r.Context(), req.ChargePointID, rs.TransactionID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
